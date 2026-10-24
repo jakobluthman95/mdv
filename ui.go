@@ -223,7 +223,7 @@ func (m *model) render() {
 		return
 	}
 	wrap := min(m.width-2, 120)
-	r, err := glamour.NewTermRenderer(glamour.WithStandardStyle(m.style), glamour.WithWordWrap(max(wrap, 20)))
+	r, err := glamour.NewTermRenderer(glamour.WithStyles(markdownStyle(m.style)), glamour.WithWordWrap(max(wrap, 20)))
 	out := m.raw
 	if err == nil {
 		if s, err := r.Render(m.raw); err == nil {
