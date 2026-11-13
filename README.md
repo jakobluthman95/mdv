@@ -209,8 +209,6 @@ mdv reads `~/.config/mdv/.env` (or `$XDG_CONFIG_HOME/mdv/.env`) on start. Real e
 | `NOTION_API_TOKEN` | unset | Talk to Notion directly with this token, without `ntn` |
 | `GITHUB_TOKEN` | unset | Create gists with this token, without `gh` |
 
-Never commit a `.env` file. The repo's `.gitignore` already excludes it.
-
 ### Notion access
 
 There are two independent options. mdv picks one automatically: the token if `NOTION_API_TOKEN` is set, otherwise `ntn`.
