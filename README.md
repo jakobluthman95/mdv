@@ -15,10 +15,16 @@ Your local files are always the source of truth. mdv never edits them, and it on
 
 ## Requirements
 
-| What | Needed for | How to get it |
+**Prerequisites** (install them however you normally do):
+
+- Go 1.27+, to build mdv
+- `make`, to build and install
+- `git`, to clone the repo; `mdv share` also uses it to upload images
+
+**Set up in the steps below:**
+
+| What | Needed for | Where |
 |---|---|---|
-| Go 1.27+ | Building mdv | `brew install go` |
-| `make` and `git` | Building; `mdv share` uploads images with git | `xcode-select --install` on macOS |
 | `~/.local/bin` on your `PATH` | Running `mdv` | See step 2 below |
 | A Notion **integration token** *or* the `ntn` CLI | `mdv notion` only | See [Notion access](#notion-access) |
 | A GitHub **token** *or* the `gh` CLI | `mdv share` only | See [GitHub access](#github-access) |
