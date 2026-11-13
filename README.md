@@ -42,7 +42,7 @@ Browsing docs needs only the binary.
 
 ## Setup, step by step
 
-**1. Get the code and build it.** The repo is private, so ask the owner to add you as a collaborator first.
+**1. Get the code and build it.**
 
 ```sh
 git clone git@github.com:jakobluthman95/mdv.git ~/dev/mdv
@@ -112,7 +112,7 @@ pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
 
 This uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too):
 
-- It clones the repo with your existing git login, which is why collaborator access is needed.
+- It clones the repo with your existing git login.
 - It finds `skills/mdv-docs/SKILL.md` and installs it for every coding agent it detects (Claude Code, Codex, Cursor, OpenCode and more).
 - `--global` installs it for your user, so it works in all projects. Leave it out to install into the current project only.
 
