@@ -119,7 +119,10 @@ Local images (![alt](relative/path.png) inside the docs folder) are uploaded to
 Notion and placed where they appear in the doc; unchanged images are reused.
 push asks for confirmation unless --yes is given. It only updates pages it
 created (recorded in <docs>/.notion.json), and refuses if a page was edited in
-Notion since the last push.`
+Notion since the last push.
+
+Uses NOTION_API_TOKEN (direct API) when set, otherwise the ntn CLI and its
+ntn login. See .env.example and mdv doctor.`
 
 func runNotion(dir string, args []string) error {
 	if len(args) == 0 {

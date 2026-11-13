@@ -17,7 +17,7 @@ Usage:
   mdv              browse .md files in the docs folder (%s)
   mdv <file.md>    open a single file (relative or absolute path, ~ supported)
   mdv --dir        print the docs folder path
-  mdv notion ...   sync docs to Notion via the ntn CLI (see mdv notion --help)
+  mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
   mdv doctor       check the setup (docs folder, Notion and GitHub access)
   mdv -h, --help   show this help
