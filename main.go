@@ -19,9 +19,11 @@ Usage:
   mdv --dir        print the docs folder path
   mdv notion ...   sync docs to Notion via the ntn CLI (see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
+  mdv doctor       check the setup (docs folder, Notion and GitHub access)
   mdv -h, --help   show this help
 
-Set MDV_DIR to use a different docs folder.
+Set MDV_DIR to use a different docs folder. Settings (MDV_DIR, NOTION_API_TOKEN,
+GITHUB_TOKEN) can also go in ~/.config/mdv/.env; see .env.example.
 
 Keys:
   ↑/↓ j/k, mouse wheel   scroll / move
@@ -36,6 +38,9 @@ Keys:
 `
 
 func main() {
+	if err := loadEnvFile(configEnvFile()); err != nil {
+		fail(fmt.Errorf("reading %s: %w", configEnvFile(), err))
+	}
 	dir, err := docsDir()
 	if err != nil {
 		fail(err)
@@ -44,6 +49,12 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "notion" {
 		if err := runNotion(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "doctor" {
+		if err := doctorCmd(dir); err != nil {
 			fail(err)
 		}
 		return

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -146,6 +145,7 @@ func notionStatusCmd(dir string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(dimStyle.Render("Using " + notionBackendName()))
 	files := markdownFiles(dir)
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 	seen := map[string]bool{}
@@ -579,7 +579,7 @@ func parsePageID(s string) (string, error) {
 	return "", fmt.Errorf("cannot find a Notion page ID in %q", s)
 }
 
-// --- ntn (Notion CLI) ---
+// --- Notion API (see notionapi.go for the backends) ---
 
 type notionPage struct {
 	ID             string `json:"id"`
@@ -630,19 +630,17 @@ func ntn(stdin []byte, args ...string) ([]byte, error) {
 }
 
 func getMarkdown(id string) ([]byte, error) {
-	out, err := ntn(nil, "pages", "get", id, "--json")
+	out, err := notionRequest("GET", "v1/pages/"+id+"/markdown", nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	var res struct {
-		Markdown struct {
-			Markdown string `json:"markdown"`
-		} `json:"markdown"`
+		Markdown string `json:"markdown"`
 	}
 	if err := json.Unmarshal(out, &res); err != nil {
 		return nil, err
 	}
-	md := res.Markdown.Markdown
+	md := res.Markdown
 	if md != "" && !strings.HasSuffix(md, "\n") {
 		md += "\n"
 	}
@@ -663,7 +661,7 @@ var imageURLs = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
 
 func getPage(id string) (notionPage, error) {
 	var p notionPage
-	out, err := ntn(nil, "api", "v1/pages/"+id)
+	out, err := notionRequest("GET", "v1/pages/"+id, nil, nil)
 	if err != nil {
 		return p, err
 	}
@@ -697,15 +695,15 @@ func isEmoji(s string) bool {
 // createPage creates a page under parentID, or a top-level private page when
 // parentID is empty.
 func createPage(parentID, title string, body []byte) (string, error) {
-	if title != "" {
-		// ntn pages create reads the title from frontmatter, not from the H1.
-		body = append([]byte("---\ntitle: "+strconv.Quote(title)+"\n---\n\n"), body...)
-	}
-	args := []string{"pages", "create", "--json"}
+	req := map[string]any{"markdown": string(body)}
 	if parentID != "" {
-		args = append(args, "--parent", "page:"+parentID)
+		req["parent"] = map[string]string{"page_id": parentID}
 	}
-	out, err := ntn(body, args...)
+	if title != "" {
+		req["properties"] = map[string]any{"title": map[string]any{"title": []any{map[string]any{"type": "text", "text": map[string]string{"content": title}}}}}
+	}
+	payload, _ := json.Marshal(req)
+	out, err := notionRequest("POST", "v1/pages", nil, payload)
 	if err != nil {
 		return "", err
 	}
@@ -716,14 +714,15 @@ func createPage(parentID, title string, body []byte) (string, error) {
 		return "", err
 	}
 	if res.ID == "" {
-		return "", fmt.Errorf("ntn pages create returned no page ID: %.200s", out)
+		return "", fmt.Errorf("creating the page returned no page ID: %.200s", out)
 	}
 	return res.ID, nil
 }
 
 // editPage replaces a page's content. It never deletes child pages or databases.
 func editPage(id string, body []byte) error {
-	_, err := ntn(body, "pages", "edit", id)
+	payload, _ := json.Marshal(map[string]any{"type": "replace_content", "replace_content": map[string]string{"new_str": string(body)}})
+	_, err := notionRequest("PATCH", "v1/pages/"+id+"/markdown", nil, payload)
 	return err
 }
 
@@ -740,6 +739,6 @@ func setTitleIcon(id, title, icon string) error {
 		return nil
 	}
 	body, _ := json.Marshal(props)
-	_, err := ntn(body, "api", "v1/pages/"+id, "-X", "PATCH")
+	_, err := notionRequest("PATCH", "v1/pages/"+id, nil, body)
 	return err
 }

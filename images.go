@@ -132,21 +132,11 @@ func uploadImage(image localImage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := ntn(b, "files", "create", "--filename", filepath.Base(image.path), "--content-type", contentType, "--json")
+	id, err := notionUpload(filepath.Base(image.path), contentType, b)
 	if err != nil {
 		return "", fmt.Errorf("uploading %s: %w", image.ref, err)
 	}
-	var res struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(out, &res); err != nil {
-		return "", err
-	}
-	if res.ID == "" || res.Status != "uploaded" {
-		return "", fmt.Errorf("uploading %s: status %q", image.ref, res.Status)
-	}
-	return res.ID, nil
+	return id, nil
 }
 
 type notionBlock struct {
@@ -167,11 +157,11 @@ func placeholderBlocks(pageID string) ([]string, error) {
 	var ids []string
 	cursor := ""
 	for {
-		args := []string{"api", "v1/blocks/" + pageID + "/children", "page_size==100"}
+		query := url.Values{"page_size": {"100"}}
 		if cursor != "" {
-			args = append(args, "start_cursor=="+cursor)
+			query.Set("start_cursor", cursor)
 		}
-		out, err := ntn(nil, args...)
+		out, err := notionRequest("GET", "v1/blocks/"+pageID+"/children", query, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -231,6 +221,6 @@ func setImageBlock(blockID, uploadID, caption string) error {
 		image["caption"] = []any{map[string]any{"type": "text", "text": map[string]string{"content": caption}}}
 	}
 	body, _ := json.Marshal(map[string]any{"image": image})
-	_, err := ntn(body, "api", "v1/blocks/"+blockID, "-X", "PATCH")
+	_, err := notionRequest("PATCH", "v1/blocks/"+blockID, nil, body)
 	return err
 }

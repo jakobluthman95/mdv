@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,7 +76,8 @@ const shareUsage = `Usage:
 
   --yes  skip the confirmation prompt
 
-Gists are created with the gh CLI on the account it is logged in to. Local
+Gists are created with GITHUB_TOKEN if set (see .env.example), otherwise with
+the gh CLI, on the account the token or gh belongs to. Local
 images (![alt](relative/path.png) inside the docs folder) are uploaded into the
 gist and linked by URL in the shared copy; your doc is never changed. Shares are
 recorded in <docs>/.share.json, and mdv only touches gists listed there.`
@@ -119,6 +122,7 @@ func shareStatusCmd(dir string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(dimStyle.Render("Using " + githubBackendName()))
 	if len(state) == 0 {
 		fmt.Println("No shared docs yet (mdv share <file.md>).")
 		return nil
@@ -205,7 +209,7 @@ func shareCmd(dir string, args []string) error {
 	}
 
 	if e.Title != title {
-		if _, err := gh(nil, "gist", "edit", e.GistID, "--desc", title); err != nil {
+		if err := setGistDescription(e.GistID, title); err != nil {
 			fmt.Fprintln(os.Stderr, "mdv: could not update the gist description:", err)
 		} else {
 			e.Title = title
@@ -242,29 +246,71 @@ func docTitle(rel string, content []byte) string {
 }
 
 func createGist(file, title string, content []byte) (shareEntry, error) {
-	out, err := gh(content, "gist", "create", "--filename", file, "--desc", title, "-")
-	if err != nil {
-		return shareEntry{}, err
-	}
-	url := strings.TrimSpace(string(out))
-	id := url[strings.LastIndex(url, "/")+1:]
-	if id == "" {
-		return shareEntry{}, fmt.Errorf("unexpected gh gist create output %q", url)
-	}
 	var g struct {
+		ID      string `json:"id"`
 		HTMLURL string `json:"html_url"`
 		Owner   struct {
 			Login string `json:"login"`
 		} `json:"owner"`
 	}
-	meta, err := gh(nil, "api", "gists/"+id)
-	if err != nil {
-		return shareEntry{}, err
+	if githubToken() != "" {
+		body, _ := json.Marshal(map[string]any{
+			"description": title,
+			"public":      false,
+			"files":       map[string]any{file: map[string]string{"content": string(content)}},
+		})
+		out, err := githubAPI(http.MethodPost, "gists", body)
+		if err != nil {
+			return shareEntry{}, err
+		}
+		if err := json.Unmarshal(out, &g); err != nil {
+			return shareEntry{}, err
+		}
+	} else {
+		out, err := gh(content, "gist", "create", "--filename", file, "--desc", title, "-")
+		if err != nil {
+			return shareEntry{}, err
+		}
+		u := strings.TrimSpace(string(out))
+		g.ID = u[strings.LastIndex(u, "/")+1:]
+		if g.ID == "" {
+			return shareEntry{}, fmt.Errorf("unexpected gh gist create output %q", u)
+		}
+		meta, err := gh(nil, "api", "gists/"+g.ID)
+		if err != nil {
+			return shareEntry{}, err
+		}
+		if err := json.Unmarshal(meta, &g); err != nil {
+			return shareEntry{}, err
+		}
 	}
-	if err := json.Unmarshal(meta, &g); err != nil {
-		return shareEntry{}, err
+	if g.ID == "" || g.Owner.Login == "" {
+		return shareEntry{}, errors.New("creating the gist returned no ID or owner")
 	}
-	return shareEntry{GistID: id, URL: g.HTMLURL, Owner: g.Owner.Login, File: file, Title: title}, nil
+	return shareEntry{GistID: g.ID, URL: g.HTMLURL, Owner: g.Owner.Login, File: file, Title: title}, nil
+}
+
+func setGistDescription(id, title string) error {
+	if githubToken() != "" {
+		body, _ := json.Marshal(map[string]string{"description": title})
+		_, err := githubAPI(http.MethodPatch, "gists/"+id, body)
+		return err
+	}
+	_, err := gh(nil, "gist", "edit", id, "--desc", title)
+	return err
+}
+
+// deleteGist deletes a gist. A gist that is already gone is not an error.
+func deleteGist(id string) (alreadyGone bool, err error) {
+	if githubToken() != "" {
+		_, err = githubAPI(http.MethodDelete, "gists/"+id, nil)
+	} else {
+		_, err = gh(nil, "gist", "delete", id, "--yes")
+	}
+	if err != nil && (strings.Contains(strings.ToLower(err.Error()), "not found") || strings.Contains(err.Error(), "404")) {
+		return true, nil
+	}
+	return false, err
 }
 
 // pushToGist clones the gist, writes the doc with its local images linked to
@@ -277,9 +323,9 @@ func pushToGist(e shareEntry, content []byte, images []localImage) (map[string]s
 	}
 	defer os.RemoveAll(tmp)
 	repo := filepath.Join(tmp, "gist")
-	// HTTPS with gh as the credential helper: works without SSH keys or
-	// known_hosts entries for gist.github.com.
-	if _, err := git(tmp, append(ghCredentials, "clone", "--quiet", "https://gist.github.com/"+e.GistID+".git", repo)...); err != nil {
+	// HTTPS with the token (or gh) as the credential helper: works without SSH
+	// keys or known_hosts entries for gist.github.com.
+	if _, err := git(tmp, append(gitCredentials(), "clone", "--quiet", "https://gist.github.com/"+e.GistID+".git", repo)...); err != nil {
 		return nil, err
 	}
 
@@ -332,7 +378,7 @@ func pushToGist(e shareEntry, content []byte, images []localImage) (map[string]s
 	if _, err := git(repo, "commit", "--quiet", "-m", "mdv share"); err != nil {
 		return nil, err
 	}
-	if _, err := git(repo, append(ghCredentials, "push", "--quiet")...); err != nil {
+	if _, err := git(repo, append(gitCredentials(), "push", "--quiet")...); err != nil {
 		return nil, err
 	}
 	return files, nil
@@ -368,10 +414,9 @@ func shareRmCmd(dir string, args []string) error {
 	if err := confirm(fmt.Sprintf("Delete the gist %s for %s? The link stops working for everyone.", link(e.URL), rel), *yes); err != nil {
 		return err
 	}
-	if _, err := gh(nil, "gist", "delete", e.GistID, "--yes"); err != nil {
-		if !strings.Contains(strings.ToLower(err.Error()), "not found") && !strings.Contains(err.Error(), "404") {
-			return err
-		}
+	if gone, err := deleteGist(e.GistID); err != nil {
+		return err
+	} else if gone {
 		fmt.Println(dimStyle.Render("The gist was already gone."))
 	}
 	delete(state, rel)
@@ -382,8 +427,59 @@ func shareRmCmd(dir string, args []string) error {
 	return nil
 }
 
-// ghCredentials makes git authenticate with gh's token (and only gh's).
-var ghCredentials = []string{"-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"}
+// gitCredentials makes git authenticate with GITHUB_TOKEN, or with gh's login
+// when no token is set, and with nothing else. The token is read from the
+// environment by the helper, so it never appears on a command line.
+func gitCredentials() []string {
+	helper := "!gh auth git-credential"
+	if githubToken() != "" {
+		helper = `!f() { test "$1" = get && echo username=x-access-token && echo "password=$GITHUB_TOKEN"; }; f`
+	}
+	return []string{"-c", "credential.helper=", "-c", "credential.helper=" + helper}
+}
+
+func githubToken() string { return os.Getenv("GITHUB_TOKEN") }
+
+func githubBackendName() string {
+	if githubToken() != "" {
+		return "GitHub API (GITHUB_TOKEN)"
+	}
+	return "gh CLI (gh auth login)"
+}
+
+func githubAPI(method, path string, body []byte) ([]byte, error) {
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, "https://api.github.com/"+path, r)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+githubToken())
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("github %s %s: %w", method, path, err)
+	}
+	defer res.Body.Close()
+	out, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		var e struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(out, &e)
+		return nil, fmt.Errorf("github %s %s: %s (HTTP %d)", method, path, e.Message, res.StatusCode)
+	}
+	return out, nil
+}
 
 func gh(stdin []byte, args ...string) ([]byte, error) {
 	return run("", stdin, "gh", args...)
