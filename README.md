@@ -220,7 +220,7 @@ echo 'export MDV_ENV_FILE=~/dev/mdv/.env' >> ~/.zshrc && source ~/.zshrc
 
 - `MDV_ENV_FILE` has to be set in your shell. mdv can't read it from inside a settings file.
 - If it's set, the file must exist, otherwise mdv stops with an error rather than silently running without your settings.
-- In the mdv clone, `.gitignore` already excludes `.env`. Keep in mind that any agent working on mdv's code can read it there.
+- In the mdv clone, `.gitignore` already excludes `.env`, so it won't be committed. But an agent working on mdv's code can still read it, unless your agent is set up to block access to `.env` files. Examples are a permission rule such as `Read(**/.env)` in Claude Code's deny list, or a plugin like FirstVet's [env-protection](https://github.com/firstvetcom/awesome-list/tree/main/src/ai/plugins/env-protection-opencode) for OpenCode.
 
 ### Notion access
 
