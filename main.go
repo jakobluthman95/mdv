@@ -19,6 +19,7 @@ Usage:
   mdv --dir        print the docs folder path
   mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
+  mdv init         set up tokens and the docs folder (~/.config/mdv/.env)
   mdv doctor       check the setup (docs folder, Notion and GitHub access)
   mdv -h, --help   show this help
 
@@ -53,6 +54,12 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "notion" {
 		if err := runNotion(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "init" {
+		if err := initCmd(args[1:]); err != nil {
 			fail(err)
 		}
 		return

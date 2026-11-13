@@ -56,15 +56,13 @@ make install        # builds ~/.local/bin/mdv and creates ~/dev/md with a welcom
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 ```
 
-**3. Create your settings file** (optional, but needed for tokens or a different docs folder):
+**3. Run the setup:**
 
 ```sh
-mkdir -p ~/.config/mdv
-cp .env.example ~/.config/mdv/.env
-chmod 600 ~/.config/mdv/.env    # it holds secrets
+mdv init
 ```
 
-Then fill in what you need (see [Configuration](#configuration)).
+It asks for the docs folder, a Notion token and a GitHub token, and checks each token right away. Every question can be skipped: without tokens, mdv uses the `ntn` and `gh` CLIs instead (see [Configuration](#configuration) for how to get either). It writes `~/.config/mdv/.env`, readable only by you. Run it again any time to change a value. `mdv init --edit` opens the file in your editor instead.
 
 **4. Give your agent the skill.** This is the step that makes mdv useful to an agent:
 
@@ -74,7 +72,7 @@ pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
 
 See [AI agents](#ai-agents) for other ways to install it.
 
-**5. Set up Notion and/or GitHub access** if you want the agent to publish with `mdv notion` or `mdv share`. See [Configuration](#configuration).
+**5. Set up Notion and/or GitHub access** if you skipped the tokens in step 3 and want the agent to publish with `mdv notion` or `mdv share`. See [Configuration](#configuration).
 
 **6. Check everything:**
 
@@ -201,7 +199,11 @@ mdv doctor
 
 ## Configuration
 
-mdv reads `~/.config/mdv/.env` (or `$XDG_CONFIG_HOME/mdv/.env`) on start. Real environment variables take priority over the file. All settings are optional. [`.env.example`](.env.example) is the template.
+mdv reads `~/.config/mdv/.env` (or `$XDG_CONFIG_HOME/mdv/.env`) on start. Real environment variables take priority over the file. All settings are optional.
+
+- **`mdv init`** creates or updates the file interactively. Tokens are typed hidden and checked, and the previous file is backed up to `.env.bak`.
+- **`mdv init --edit`** opens it in `$EDITOR`, creating it from the built-in template first.
+- [`.env.example`](.env.example) is the same template, if you'd rather copy it by hand.
 
 | Variable | Default | Effect |
 |---|---|---|

@@ -42,14 +42,31 @@ func envFileExplicit() bool { return os.Getenv("MDV_ENV_FILE") != "" }
 //   - a path set with MDV_ENV_FILE: an error, because the user asked for
 //     that file and probably mistyped the path.
 func loadEnvFile(path string) error {
-	f, err := os.Open(path)
+	values, _, err := parseEnvFile(path)
 	if os.IsNotExist(err) && !envFileExplicit() {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	for key, value := range values {
+		if _, set := os.LookupEnv(key); !set {
+			os.Setenv(key, value)
+		}
+	}
+	return nil
+}
+
+// parseEnvFile reads a .env file without touching the environment. It returns
+// the values and the keys in file order.
+func parseEnvFile(path string) (map[string]string, []string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
 	defer f.Close()
+	values := map[string]string{}
+	var keys []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -67,9 +84,13 @@ func loadEnvFile(path string) error {
 		} else if i := strings.Index(value, " #"); i >= 0 {
 			value = strings.TrimSpace(value[:i])
 		}
-		if _, set := os.LookupEnv(key); !set && key != "" {
-			os.Setenv(key, value)
+		if key == "" {
+			continue
 		}
+		if _, seen := values[key]; !seen {
+			keys = append(keys, key)
+		}
+		values[key] = value
 	}
-	return sc.Err()
+	return values, keys, sc.Err()
 }
