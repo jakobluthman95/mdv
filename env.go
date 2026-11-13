@@ -7,10 +7,17 @@ import (
 	"strings"
 )
 
-// configEnvFile is mdv's optional settings file:
-// $XDG_CONFIG_HOME/mdv/.env, by default ~/.config/mdv/.env.
-// Variables already set in the environment win over the file.
+// configEnvFile is mdv's optional settings file: $MDV_ENV_FILE when set
+// (a ~ prefix is expanded), otherwise $XDG_CONFIG_HOME/mdv/.env, by default
+// ~/.config/mdv/.env. Variables already set in the environment win over the
+// file. MDV_ENV_FILE itself has to come from the environment, not a file.
 func configEnvFile() string {
+	if p := os.Getenv("MDV_ENV_FILE"); p != "" {
+		if abs, err := expandPath(p); err == nil {
+			return abs
+		}
+		return p
+	}
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -22,12 +29,21 @@ func configEnvFile() string {
 	return filepath.Join(base, "mdv", ".env")
 }
 
+// envFileExplicit reports whether the settings file was chosen with
+// MDV_ENV_FILE. An explicitly chosen file must exist.
+func envFileExplicit() bool { return os.Getenv("MDV_ENV_FILE") != "" }
+
 // loadEnvFile reads KEY=VALUE lines into the environment. Blank lines,
 // # comments and an optional "export " prefix are allowed; values may be
-// wrapped in single or double quotes. A missing file is fine.
+// wrapped in single or double quotes.
+//
+// If the file doesn't exist, what happens depends on where the path came from:
+//   - ~/.config/mdv/.env (the default): fine, mdv runs without settings.
+//   - a path set with MDV_ENV_FILE: an error, because the user asked for
+//     that file and probably mistyped the path.
 func loadEnvFile(path string) error {
 	f, err := os.Open(path)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) && !envFileExplicit() {
 		return nil
 	}
 	if err != nil {
