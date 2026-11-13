@@ -41,4 +41,4 @@ mdv ~/dev/some-repo/docs.md # absolute or ~ path
 9. Duis ac tellus et risus vulputate vehicula.
 10. Donec lobortis risus a elit, etiam tempor.
 
-That's it — press `esc` to go back or `q` to quit.
+That's it! Press `esc` to go back or `q` to quit.

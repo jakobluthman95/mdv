@@ -17,6 +17,7 @@ Usage:
   mdv              browse .md files in the docs folder (%s)
   mdv <file.md>    open a single file (relative or absolute path, ~ supported)
   mdv --dir        print the docs folder path
+  mdv notion ...   sync docs to Notion via the ntn CLI (see mdv notion --help)
   mdv -h, --help   show this help
 
 Set MDV_DIR to use a different docs folder.
@@ -40,6 +41,12 @@ func main() {
 	}
 
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "notion" {
+		if err := runNotion(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
 	if len(args) > 1 {
 		fail(errors.New("expected at most one argument (see mdv --help)"))
 	}

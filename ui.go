@@ -33,10 +33,13 @@ type fileItem struct {
 	path    string
 	rel     string
 	modTime time.Time
+	notion  syncState
 }
 
-func (f fileItem) Title() string       { return f.rel }
-func (f fileItem) Description() string { return f.modTime.Format("2006-01-02 15:04") }
+func (f fileItem) Title() string { return f.rel }
+func (f fileItem) Description() string {
+	return f.modTime.Format("2006-01-02 15:04") + " · " + f.notion.String()
+}
 func (f fileItem) FilterValue() string { return f.rel }
 
 type model struct {
@@ -85,27 +88,38 @@ type fileMsg struct {
 	err           error
 }
 
+// markdownFiles walks dir recursively, skipping hidden folders.
+func markdownFiles(dir string) []fileItem {
+	var items []fileItem
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && p != dir && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !isMarkdown(p) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, p)
+		items = append(items, fileItem{path: p, rel: rel, modTime: info.ModTime()})
+		return nil
+	})
+	return items
+}
+
 func scanDir(dir string) tea.Cmd {
 	return func() tea.Msg {
-		var items []fileItem
-		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
+		items := markdownFiles(dir)
+		if state, err := loadNotionState(dir); err == nil {
+			for i := range items {
+				items[i].notion = state.status(dir, items[i].rel, items[i].path)
 			}
-			if d.IsDir() && p != dir && strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
-			}
-			if d.IsDir() || !isMarkdown(p) {
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			rel, _ := filepath.Rel(dir, p)
-			items = append(items, fileItem{path: p, rel: rel, modTime: info.ModTime()})
-			return nil
-		})
+		}
 		sort.Slice(items, func(i, j int) bool { return items[i].modTime.After(items[j].modTime) })
 		out := make([]list.Item, len(items))
 		for i, it := range items {
