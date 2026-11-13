@@ -1,4 +1,4 @@
-module mdv
+module github.com/jakobluthman95/mdv
 
 go 1.27.3
 

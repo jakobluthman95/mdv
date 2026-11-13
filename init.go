@@ -101,7 +101,7 @@ func initCmd(args []string) error {
 	}
 	fmt.Printf("Wrote %s (only readable by you).\n", tildify(path))
 	if dir, err := expandPath(values["MDV_DIR"]); err == nil && values["MDV_DIR"] != "" {
-		_ = os.MkdirAll(dir, 0o755)
+		_ = ensureDocsDir(dir)
 	}
 	fmt.Println(dimStyle.Render(`
 Next:

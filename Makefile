@@ -1,13 +1,14 @@
 BIN ?= $(HOME)/.local/bin/mdv
-DOCS ?= $(HOME)/dev/md
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build install
 
 build:
-	go build -o mdv .
+	go build -ldflags "$(LDFLAGS)" -o mdv .
 
+# The docs folder and its welcome doc are created by mdv itself on first run.
 install:
-	mkdir -p $(dir $(BIN)) $(DOCS)
-	go build -o $(BIN) .
-	[ -e $(DOCS)/welcome.md ] || cp welcome.md $(DOCS)/welcome.md
-	@echo "installed $(BIN)"
+	mkdir -p $(dir $(BIN))
+	go build -ldflags "$(LDFLAGS)" -o $(BIN) .
+	@echo "installed $(BIN) ($(VERSION))"
