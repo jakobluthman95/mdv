@@ -23,7 +23,8 @@ Usage:
   mdv -h, --help   show this help
 
 Set MDV_DIR to use a different docs folder. Settings (MDV_DIR, NOTION_API_TOKEN,
-GITHUB_TOKEN) can also go in ~/.config/mdv/.env; see .env.example.
+GITHUB_TOKEN) can also go in ~/.config/mdv/.env, or in any file named by
+MDV_ENV_FILE; see .env.example.
 
 Keys:
   ↑/↓ j/k, mouse wheel   scroll / move
@@ -39,6 +40,9 @@ Keys:
 
 func main() {
 	if err := loadEnvFile(configEnvFile()); err != nil {
+		if envFileExplicit() {
+			fail(fmt.Errorf("MDV_ENV_FILE: %w", err))
+		}
 		fail(fmt.Errorf("reading %s: %w", configEnvFile(), err))
 	}
 	dir, err := docsDir()

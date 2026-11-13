@@ -16,7 +16,11 @@ func doctorCmd(dir string) error {
 	info := func(label, detail string) { fmt.Printf("· %-8s %s\n", label, detail) }
 
 	if _, err := os.Stat(configEnvFile()); err == nil {
-		ok("config", tildify(configEnvFile()))
+		detail := tildify(configEnvFile())
+		if envFileExplicit() {
+			detail += " (from MDV_ENV_FILE)"
+		}
+		ok("config", detail)
 	} else {
 		info("config", tildify(configEnvFile())+" not found (optional; see .env.example)")
 	}

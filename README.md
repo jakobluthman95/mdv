@@ -208,6 +208,19 @@ mdv reads `~/.config/mdv/.env` (or `$XDG_CONFIG_HOME/mdv/.env`) on start. Real e
 | `MDV_DIR` | `~/dev/md` | The docs folder |
 | `NOTION_API_TOKEN` | unset | Talk to Notion directly with this token, without `ntn` |
 | `GITHUB_TOKEN` | unset | Create gists with this token, without `gh` |
+| `MDV_ENV_FILE` | unset | Read settings from this file instead of `~/.config/mdv/.env` |
+
+### Keeping the settings file somewhere else
+
+To keep your `.env` in another place, for example in your mdv clone, point `MDV_ENV_FILE` at it from your shell profile:
+
+```sh
+echo 'export MDV_ENV_FILE=~/dev/mdv/.env' >> ~/.zshrc && source ~/.zshrc
+```
+
+- `MDV_ENV_FILE` has to be set in your shell. mdv can't read it from inside a settings file.
+- If it's set, the file must exist, otherwise mdv stops with an error rather than silently running without your settings.
+- In the mdv clone, `.gitignore` already excludes `.env`. Keep in mind that any agent working on mdv's code can read it there.
 
 ### Notion access
 
