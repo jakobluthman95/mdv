@@ -22,35 +22,55 @@ The commands are built so an agent can use them safely:
 
 You can use all of it by hand too. The agent is just the main user.
 
+## Quick start
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jakobluthman95/mdv/main/install.sh | sh
+mdv init
+pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+mdv doctor
+```
+
+That's it: install, set up, teach your agent, check. The sections below explain each step and the alternatives.
+
 ## Requirements
 
-**Prerequisites** (install them however you normally do):
+- **macOS or Linux** (Intel or ARM).
+- **`git`**: `mdv share` uses it to upload images.
+- **To publish:** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration).
 
-- Go 1.27+, to build mdv
-- `make`, to build and install
-- `git`, to clone the repo; `mdv share` also uses it to upload images
-
-**Set up in the steps below:**
-
-| What | Needed for | Where |
-|---|---|---|
-| `~/.local/bin` on your `PATH` | Running `mdv` | See step 2 below |
-| A Notion **integration token** *or* the `ntn` CLI | `mdv notion` only | See [Notion access](#notion-access) |
-| A GitHub **token** *or* the `gh` CLI | `mdv share` only | See [GitHub access](#github-access) |
-
-Browsing docs needs only the binary.
+Browsing docs needs only the binary. Building from source also needs Go 1.27+ and `make`.
 
 ## Setup, step by step
 
-**1. Get the code and build it.**
+**1. Install mdv.** Pick one:
 
-```sh
-git clone git@github.com:jakobluthman95/mdv.git ~/dev/mdv
-cd ~/dev/mdv
-make install        # builds ~/.local/bin/mdv and creates ~/dev/md with a welcome doc
-```
+- **Install script (recommended):** downloads the right prebuilt binary for your machine from the [latest release](https://github.com/jakobluthman95/mdv/releases/latest), checks its checksum and puts it in `~/.local/bin`:
 
-**2. Put `~/.local/bin` on your `PATH`** if it isn't there yet:
+  ```sh
+  curl -fsSL https://raw.githubusercontent.com/jakobluthman95/mdv/main/install.sh | sh
+  ```
+
+  `MDV_VERSION=v0.1.0` installs a specific version, and `MDV_INSTALL_DIR=…` installs somewhere else. You can [read the script](install.sh) first.
+
+- **With Go:** installs into `~/go/bin` (or `$GOBIN`):
+
+  ```sh
+  go install github.com/jakobluthman95/mdv@latest
+  ```
+
+- **From source:** for working on mdv itself:
+
+  ```sh
+  git clone git@github.com:jakobluthman95/mdv.git ~/dev/mdv
+  cd ~/dev/mdv && make install     # builds ~/.local/bin/mdv
+  ```
+
+  You can also download an archive by hand from [Releases](https://github.com/jakobluthman95/mdv/releases).
+
+`mdv --version` shows what you have. The docs folder (`~/dev/md`) and a welcome doc are created the first time you run `mdv`.
+
+**2. Make sure the install folder is on your `PATH`.** The install script tells you if it isn't. For `~/.local/bin`:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
@@ -84,10 +104,14 @@ mdv doctor
 
 ### Updating
 
+Run the same install command again, then update the skill:
+
 ```sh
-cd ~/dev/mdv && git pull && make install
-pnpx skills update     # picks up skill changes too
+curl -fsSL https://raw.githubusercontent.com/jakobluthman95/mdv/main/install.sh | sh   # or: go install …@latest, or git pull && make install
+pnpx skills update
 ```
+
+Your settings in `~/.config/mdv/.env` and your docs are never touched by an update.
 
 ## AI agents
 
@@ -296,3 +320,17 @@ go vet ./... && gofmt -l .
 | `images.go` | Local image detection, Notion uploads, link rewriting |
 | `share.go` | `mdv share`: gists via GitHub API (token) or `gh` |
 | `doctor.go` | `mdv doctor` |
+| `init.go` | `mdv init` |
+| `version.go` | `mdv --version`, docs folder + welcome doc on first run |
+| `install.sh` | The install script |
+| `.goreleaser.yaml`, `.github/workflows/release.yml` | Release pipeline |
+
+### Releasing
+
+Push a version tag and GitHub Actions does the rest. GoReleaser builds macOS and Linux binaries and publishes them as a GitHub Release, which `install.sh` and the README links pick up.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+To try the pipeline locally without publishing anything: `go run github.com/goreleaser/goreleaser/v2@v2.12.7 release --snapshot --clean` (output in `dist/`).

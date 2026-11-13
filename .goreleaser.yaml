@@ -1,0 +1,31 @@
+# Release pipeline: pushing a tag like v0.1.0 builds mdv for macOS and Linux
+# and publishes a GitHub Release with the archives and checksums.
+# Docs: https://goreleaser.com
+version: 2
+
+project_name: mdv
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    # mdv_0.1.0_darwin_arm64.tar.gz; install.sh relies on this name.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - .env.example
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge"

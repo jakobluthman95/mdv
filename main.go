@@ -21,6 +21,7 @@ Usage:
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
   mdv init         set up tokens and the docs folder (~/.config/mdv/.env)
   mdv doctor       check the setup (docs folder, Notion and GitHub access)
+  mdv --version    print the version
   mdv -h, --help   show this help
 
 Set MDV_DIR to use a different docs folder. Settings (MDV_DIR, NOTION_API_TOKEN,
@@ -89,13 +90,16 @@ func main() {
 		case "--dir":
 			fmt.Println(dir)
 			return
+		case "-v", "--version", "version":
+			fmt.Println("mdv", mdvVersion())
+			return
 		}
 		if file, err = resolveFile(args[0]); err != nil {
 			fail(err)
 		}
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := ensureDocsDir(dir); err != nil {
 		fail(err)
 	}
 
