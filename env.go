@@ -35,8 +35,12 @@ func envFileExplicit() bool { return os.Getenv("MDV_ENV_FILE") != "" }
 
 // loadEnvFile reads KEY=VALUE lines into the environment. Blank lines,
 // # comments and an optional "export " prefix are allowed; values may be
-// wrapped in single or double quotes. A missing default file is fine; a
-// missing MDV_ENV_FILE is an error.
+// wrapped in single or double quotes.
+//
+// If the file doesn't exist, what happens depends on where the path came from:
+//   - ~/.config/mdv/.env (the default): fine, mdv runs without settings.
+//   - a path set with MDV_ENV_FILE: an error, because the user asked for
+//     that file and probably mistyped the path.
 func loadEnvFile(path string) error {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) && !envFileExplicit() {
