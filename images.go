@@ -69,6 +69,19 @@ func withPlaceholders(body []byte) []byte {
 	})
 }
 
+// withRawURLs points local image references at the URLs in urls (keyed by the
+// reference as written in the doc). Other references are left alone.
+func withRawURLs(body []byte, urls map[string]string) []byte {
+	return imageRef.ReplaceAllFunc(body, func(m []byte) []byte {
+		sub := imageRef.FindSubmatch(m)
+		u, ok := urls[string(sub[2])]
+		if !ok {
+			return m
+		}
+		return []byte("![" + string(sub[1]) + "](" + u + ")")
+	})
+}
+
 // docHash covers a doc and the local images it references, so a changed image
 // counts as a change. Docs without local images hash to their content hash.
 func docHash(dir, path string, content []byte) string {

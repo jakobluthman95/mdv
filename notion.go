@@ -547,7 +547,7 @@ func confirm(question string, yes bool) error {
 		return nil
 	}
 	if !isTerminal() {
-		return errors.New("no terminal to confirm on; pass --yes to write to Notion")
+		return errors.New("no terminal to confirm on; pass --yes to skip the prompt")
 	}
 	fmt.Print(question + " [y/N] ")
 	answer, _ := stdin.ReadString('\n')
