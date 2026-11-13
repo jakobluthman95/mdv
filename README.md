@@ -200,11 +200,33 @@ Either way, gists are created on the account the token or `gh` belongs to. Image
 
 [`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells an agent where docs go, the Notion-ready Markdown format, and how to push and share. Most importantly, it says to always ask before writing to Notion or sharing. It uses the open `SKILL.md` format and reads fine as plain Markdown.
 
-- **Claude Code:** `mkdir -p ~/.claude/skills && cp -r skills/mdv-docs ~/.claude/skills/`
-- **Agents with skill folders** (Codex, Cursor, etc.): copy `skills/mdv-docs` into that agent's skills directory.
+### Install with the skills CLI (recommended)
+
+```sh
+pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+```
+
+This uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too):
+
+- It clones the repo with your existing git login, which is why collaborator access is needed.
+- It finds `skills/mdv-docs/SKILL.md` and installs it for every coding agent it detects (Claude Code, Codex, Cursor, OpenCode and more).
+- `--global` installs it for your user, so it works in all projects. Leave it out to install into the current project only.
+
+To keep it up to date:
+
+```sh
+pnpx skills check     # any updates?
+pnpx skills update    # install them
+```
+
+Run `pnpx skills add git@github.com:jakobluthman95/mdv.git --list` to see what's in the repo without installing anything.
+
+### Install by hand
+
+- **Agents with skill folders:** copy `skills/mdv-docs` into the agent's skills directory, e.g. `mkdir -p ~/.claude/skills && cp -r skills/mdv-docs ~/.claude/skills/` for Claude Code. Re-copy it after `git pull` if it changed.
 - **Anything else:** reference it from your global `AGENTS.md`, or paste it into your agent's instructions.
 
-Re-copy it after `git pull` if it changed.
+> 💡 If you already have a skill named `mdv-docs` in an agent's skills folder, remove it or skip that agent first. Otherwise the two will clash.
 
 ## Troubleshooting
 
