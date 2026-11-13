@@ -1,17 +1,26 @@
 # mdv
 
-A terminal Markdown viewer for a local docs folder, which can also push docs to Notion and share them by secret link.
+A documentation workspace for AI coding agents. Your agent writes its findings, plans and summaries to one local folder, you read and review them in the terminal, and the agent publishes them to Notion or a secret link, but only once you approve.
 
 ## What and why
 
-Notes, findings and plans written while coding (often by an AI agent) pile up as Markdown files. mdv keeps them in **one folder outside your repos** (default `~/dev/md`) and gives you:
+Coding agents produce a lot of useful writing: investigation notes, plans, findings, summaries of the work done. Without a convention, it ends up scattered in repos, chat scrollback or `LOCAL_DOCS/` folders that never get shared.
 
-- **A fast terminal viewer** (`mdv`): browse every doc, newest first, rendered with syntax highlighting.
-- **Notion sync** (`mdv notion`): push a doc to a Notion page, with images. Later updates show a diff, and mdv refuses to overwrite edits made in Notion.
-- **Secret links** (`mdv share`): share a doc with someone without putting it in Notion. It becomes a secret GitHub gist that only people with the link can open.
-- **Agent instructions** (`skills/mdv-docs/SKILL.md`): how an AI agent should write, push and share docs in this setup.
+mdv gives agents (and you) one place and one workflow for it:
 
-Your local files are always the source of truth. mdv never edits them, and it only updates Notion pages and gists it created itself.
+1. **Write:** the [mdv-docs skill](#ai-agents) tells the agent where docs go (one folder outside your repos, default `~/dev/md`, organised by repo) and how to format them so they publish cleanly.
+2. **Review:** `mdv` opens a terminal viewer over every doc, newest first, so you can read what the agent wrote without leaving the terminal.
+3. **Publish, with approval:** the agent can push a doc to Notion (`mdv notion`) or turn it into a secret link (`mdv share`). The skill makes it ask first and show you exactly what will change.
+
+The commands are built so an agent can use them safely:
+
+- **Read-only checks first:** `status`, `diff` and `doctor` never write anything.
+- **Confirmation by default:** every write asks for confirmation. `--yes` is only passed after you've approved.
+- **mdv only touches what it created:** it updates only the Notion pages and gists it made itself, recorded in `.notion.json` and `.share.json`.
+- **No silent overwrites:** it refuses to overwrite edits someone made in Notion.
+- **Local files stay the source of truth:** mdv never edits your docs.
+
+You can use all of it by hand too. The agent is just the main user.
 
 ## Requirements
 
@@ -57,9 +66,17 @@ chmod 600 ~/.config/mdv/.env    # it holds secrets
 
 Then fill in what you need (see [Configuration](#configuration)).
 
-**4. Set up Notion and/or GitHub access** if you want `mdv notion` or `mdv share`. See the sections below.
+**4. Give your agent the skill.** This is the step that makes mdv useful to an agent:
 
-**5. Check everything:**
+```sh
+pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+```
+
+See [AI agents](#ai-agents) for other ways to install it.
+
+**5. Set up Notion and/or GitHub access** if you want the agent to publish with `mdv notion` or `mdv share`. See [Configuration](#configuration).
+
+**6. Check everything:**
 
 ```sh
 mdv doctor
@@ -67,13 +84,53 @@ mdv doctor
 
 `doctor` is read-only. It checks the config file, the docs folder, Notion access and GitHub access, and tells you what's missing.
 
-**6. Optional: teach your AI agent.** See [AI agents](#ai-agents).
-
 ### Updating
 
 ```sh
 cd ~/dev/mdv && git pull && make install
+pnpx skills update     # picks up skill changes too
 ```
+
+## AI agents
+
+The skill is what turns mdv from a viewer into an agent workflow. [`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells the agent:
+
+- where docs go and how to name them;
+- the Notion-ready Markdown format (H1 title, GFM only, images next to the doc);
+- how to push to Notion and share by link, using the read-only commands first;
+- to **always ask before any write**, stating exactly what will happen.
+
+It uses the open `SKILL.md` format and reads fine as plain Markdown.
+
+Once it's installed, just talk to your agent: "write up these findings", "push that doc to Notion under the team page", "give me a link I can send to a colleague".
+
+### Install with the skills CLI (recommended)
+
+```sh
+pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+```
+
+This uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too):
+
+- It clones the repo with your existing git login, which is why collaborator access is needed.
+- It finds `skills/mdv-docs/SKILL.md` and installs it for every coding agent it detects (Claude Code, Codex, Cursor, OpenCode and more).
+- `--global` installs it for your user, so it works in all projects. Leave it out to install into the current project only.
+
+To keep it up to date:
+
+```sh
+pnpx skills check     # any updates?
+pnpx skills update    # install them
+```
+
+Run `pnpx skills add git@github.com:jakobluthman95/mdv.git --list` to see what's in the repo without installing anything.
+
+### Install by hand
+
+- **Agents with skill folders:** copy `skills/mdv-docs` into the agent's skills directory, e.g. `mkdir -p ~/.claude/skills && cp -r skills/mdv-docs ~/.claude/skills/` for Claude Code. Re-copy it after `git pull` if it changed.
+- **Anything else:** reference it from your global `AGENTS.md`, or paste it into your agent's instructions.
+
+> 💡 If you already have a skill named `mdv-docs` in an agent's skills folder, remove it or skip that agent first. Otherwise the two will clash.
 
 ## Usage
 
@@ -195,38 +252,6 @@ gh auth refresh -s gist
 ```
 
 Either way, gists are created on the account the token or `gh` belongs to. Images are pushed over HTTPS, so no SSH key setup is needed.
-
-## AI agents
-
-[`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells an agent where docs go, the Notion-ready Markdown format, and how to push and share. Most importantly, it says to always ask before writing to Notion or sharing. It uses the open `SKILL.md` format and reads fine as plain Markdown.
-
-### Install with the skills CLI (recommended)
-
-```sh
-pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
-```
-
-This uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too):
-
-- It clones the repo with your existing git login, which is why collaborator access is needed.
-- It finds `skills/mdv-docs/SKILL.md` and installs it for every coding agent it detects (Claude Code, Codex, Cursor, OpenCode and more).
-- `--global` installs it for your user, so it works in all projects. Leave it out to install into the current project only.
-
-To keep it up to date:
-
-```sh
-pnpx skills check     # any updates?
-pnpx skills update    # install them
-```
-
-Run `pnpx skills add git@github.com:jakobluthman95/mdv.git --list` to see what's in the repo without installing anything.
-
-### Install by hand
-
-- **Agents with skill folders:** copy `skills/mdv-docs` into the agent's skills directory, e.g. `mkdir -p ~/.claude/skills && cp -r skills/mdv-docs ~/.claude/skills/` for Claude Code. Re-copy it after `git pull` if it changed.
-- **Anything else:** reference it from your global `AGENTS.md`, or paste it into your agent's instructions.
-
-> 💡 If you already have a skill named `mdv-docs` in an agent's skills folder, remove it or skip that agent first. Otherwise the two will clash.
 
 ## Troubleshooting
 
