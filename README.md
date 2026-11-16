@@ -183,6 +183,7 @@ mdv --help           # all commands and keys
 mdv notion status                                  # every doc and its sync state (read-only)
 mdv notion push doc.md --parent <page URL or ID>   # create a page under a parent page
 mdv notion push doc.md --private                   # create a top-level private page
+mdv notion push doc.md --database <database URL>   # add a new entry to an existing database
 mdv notion push doc.md                             # update the page mdv created
 mdv notion diff doc.md                             # what an update would change (read-only)
 ```
@@ -191,6 +192,33 @@ mdv notion diff doc.md                             # what an update would change
 - Local images (`![caption](doc/screenshot.png)`) are uploaded and placed where they appear. Unchanged images are reused.
 - Every push asks for confirmation (`--yes` skips the prompt). Updates show a diff first.
 - mdv only touches pages listed in `<docs>/.notion.json`. It refuses to push over content edited in Notion since the last push.
+- **Who can see the page:** a new page gets the access of where it's created. With `--private` only you can see it, and mdv can't change sharing (Notion's API has no way to). To make a doc visible to your team, push it under a shared page or into a shared database.
+
+#### Databases
+
+`--database` takes a database URL (a link to one of its views works too) or ID, and adds the doc as a new entry. `--prop "Name=value"` fills in the entry's properties. Repeat it for each property:
+
+```sh
+mdv notion push doc.md --database <database URL> \
+  --prop "Category=Explanation" --prop "Audience=Developer,QA" --prop "Date=2026-11-16"
+mdv notion push doc.md --prop "Category=Reference"   # later: change a property of the entry mdv created
+```
+
+| Property type | Value |
+|---|---|
+| select, status | one existing option |
+| multi_select | existing options, comma-separated |
+| date | `YYYY-MM-DD` or an RFC 3339 timestamp |
+| text, number, checkbox, url, email, phone | the value (`true`/`false` for checkboxes) |
+| relation (one-way only) | page URLs or IDs, comma-separated |
+
+Option names match without case, and a leading emoji can be left out (`Tags=Technical Documentation` matches `⚙️ Technical Documentation`). The title comes from the H1 or `--title`, not `--prop`.
+
+mdv keeps databases as they are. It only adds entries and edits the entries it created:
+
+- It never creates databases or changes their properties.
+- **It never adds options.** An unknown select value is refused instead of being added to the database.
+- **It never sets two-way relations,** because linking would also change the linked pages. Set those by hand in Notion.
 
 ### Secret links: `mdv share`
 
@@ -259,7 +287,7 @@ There are two independent options. mdv picks one automatically: the token if `NO
 3. Copy the **Internal Integration Secret** into `~/.config/mdv/.env` as `NOTION_API_TOKEN=ntn_…`.
 4. **Give the integration access to the pages you'll push under.** Open the parent page, then **•••** → **Connections** → add your integration. Child pages inherit the access.
 
-> 💡 An integration only sees pages that have been explicitly connected to it. If `mdv notion push --parent …` says the page can't be found, connect the integration to that page. `--private` (a top-level page with no parent) may be refused for internal integrations, so use `--parent` with a token.
+> 💡 An integration only sees pages that have been explicitly connected to it. If `mdv notion push --parent …` says the page can't be found, connect the integration to that page. `--private` (a top-level page with no parent) may be refused for internal integrations, so use `--parent` or `--database` with a token. For `--database`, connect the integration to the database.
 
 **Option B: the `ntn` CLI.** It uses your own Notion login, so it sees everything you can see.
 

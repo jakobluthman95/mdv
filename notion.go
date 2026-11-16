@@ -24,9 +24,12 @@ import (
 const notionStateFile = ".notion.json"
 
 type notionEntry struct {
-	PageID         string `json:"pageId"`
-	URL            string `json:"url"`
-	ParentID       string `json:"parentId"`
+	PageID   string `json:"pageId"`
+	URL      string `json:"url"`
+	ParentID string `json:"parentId"`
+	// DataSourceID is set for entries mdv created in a database (ParentID is
+	// then the database ID). Its schema is used to check --prop values.
+	DataSourceID   string `json:"dataSourceId,omitempty"`
 	SHA256         string `json:"sha256"`
 	SyncedAt       string `json:"syncedAt"`
 	LastEditedTime string `json:"lastEditedTime"`
@@ -106,12 +109,19 @@ const notionUsage = `Usage:
   mdv notion status                          list docs and their Notion sync state
   mdv notion push <file.md> --parent <page>  create a Notion page under <page> (URL or ID)
   mdv notion push <file.md> --private        create a top-level private Notion page
+  mdv notion push <file.md> --database <db>  add the doc as a new entry in an existing
+                                             database (URL, view URL or ID)
   mdv notion push <file.md>                  update the page mdv created for <file.md>
   mdv notion diff <file.md>                  show what an update would change (read-only)
 
   --title <title>  page title (a leading emoji becomes the icon). New pages
                    suggest the doc's H1 (or file name) and ask for a title.
                    Updates keep the title from the last push unless given.
+  --prop Name=value  set a database property (repeatable). Supports select,
+                   multi_select (comma-separated), status, date, text, number,
+                   checkbox, url, email, phone and one-way relations (page URLs
+                   or IDs). Option values must already exist in the database.
+                   Works on new entries and on updates of entries mdv created.
   --yes            skip the prompts (the suggested title is used)
 
 Updates show a diff against the last pushed version before asking.
@@ -119,7 +129,9 @@ Local images (![alt](relative/path.png) inside the docs folder) are uploaded to
 Notion and placed where they appear in the doc; unchanged images are reused.
 push asks for confirmation unless --yes is given. It only updates pages it
 created (recorded in <docs>/.notion.json), and refuses if a page was edited in
-Notion since the last push.
+Notion since the last push. In a database it only adds entries: it never
+creates or changes databases, their properties or their options, and never
+sets two-way relations (they would change the linked pages too).
 
 Uses NOTION_API_TOKEN (direct API) when set, otherwise the ntn CLI and its
 ntn login. See .env.example and mdv doctor.`
@@ -172,6 +184,9 @@ func notionPushCmd(dir string, args []string) error {
 	fs := flag.NewFlagSet("push", flag.ContinueOnError)
 	parent := fs.String("parent", "", "parent page URL or ID (new pages only)")
 	private := fs.Bool("private", false, "create a top-level private page instead (new pages only)")
+	database := fs.String("database", "", "database URL or ID to add a new entry to (new pages only)")
+	var rawProps propFlags
+	fs.Var(&rawProps, "prop", "database property Name=value (repeatable)")
 	yes := fs.Bool("yes", false, "skip the prompts")
 	titleFlag := fs.String("title", "", "page title")
 	// Allow flags before and after the file argument.
@@ -208,14 +223,21 @@ func notionPushCmd(dir string, args []string) error {
 		return err
 	}
 
-	var pageID, parentID string
+	var pageID, parentID, dataSourceID string
+	var props map[string]any
+	var propSummary []string
+	contentWritten := true
 	var previousImages map[string]string
 	uploads := map[string]string{}
 	if e, ok := state[rel]; ok {
-		if *parent != "" || *private {
-			return fmt.Errorf("%s is already in Notion (%s); --parent and --private only apply to new pages", rel, e.URL)
+		if *parent != "" || *private || *database != "" {
+			return fmt.Errorf("%s is already in Notion (%s); --parent, --private and --database only apply to new pages", rel, e.URL)
 		}
-		if state.status(dir, rel, path) == synced {
+		if len(rawProps) > 0 && e.DataSourceID == "" {
+			return fmt.Errorf("%s is not a database entry; --prop only applies to pages mdv created in a database", rel)
+		}
+		contentChanged := state.status(dir, rel, path) != synced
+		if !contentChanged && len(rawProps) == 0 {
 			seedSnapshot(dir, e.PageID, content)
 			fmt.Println("Up to date:", link(e.URL))
 			return nil
@@ -246,31 +268,68 @@ func notionPushCmd(dir string, args []string) error {
 		case e.Title != "":
 			title = e.Title
 		}
-		diff, err := pageDiff(dir, rel, e, content, body)
-		if err != nil {
-			return err
+		if len(rawProps) > 0 {
+			ds, err := getDataSource(e.DataSourceID)
+			if err != nil {
+				return fmt.Errorf("cannot read the database of %s: %w", rel, err)
+			}
+			if props, propSummary, err = buildProps(ds, rawProps, getPage); err != nil {
+				return err
+			}
 		}
-		fmt.Print(diff + imageChanges(e, images))
 		previousImages = e.Images
 		for sha, id := range e.Images {
 			uploads[sha] = id
 		}
-		if err := confirm(fmt.Sprintf("Replace the content of %s (%q) with %s%s?", link(e.URL), title, rel, imageSummary(images, uploads)), *yes); err != nil {
+		if contentChanged {
+			diff, err := pageDiff(dir, rel, e, content, body)
+			if err != nil {
+				return err
+			}
+			fmt.Print(diff + imageChanges(e, images))
+			if err := confirm(fmt.Sprintf("Replace the content of %s (%q) with %s%s%s?", link(e.URL), title, rel, imageSummary(images, uploads), propsSummary(propSummary)), *yes); err != nil {
+				return err
+			}
+			if err := uploadImages(images, uploads); err != nil {
+				return err
+			}
+			if err := editPage(e.PageID, body); err != nil {
+				return err
+			}
+		} else if err := confirm(fmt.Sprintf("Update the properties of %s (%q)%s?", link(e.URL), title, propsSummary(propSummary)), *yes); err != nil {
 			return err
 		}
-		if err := uploadImages(images, uploads); err != nil {
-			return err
-		}
-		if err := editPage(e.PageID, body); err != nil {
-			return err
-		}
-		pageID, parentID = e.PageID, e.ParentID
+		pageID, parentID, dataSourceID = e.PageID, e.ParentID, e.DataSourceID
+		contentWritten = contentChanged
 	} else {
-		if (*parent == "") == !*private {
-			return fmt.Errorf("%s is not in Notion yet; pass either --parent <page URL or ID> or --private", rel)
+		targets := 0
+		for _, set := range []bool{*parent != "", *private, *database != ""} {
+			if set {
+				targets++
+			}
+		}
+		if targets != 1 {
+			return fmt.Errorf("%s is not in Notion yet; pass one of --parent <page URL or ID>, --database <database URL or ID> or --private", rel)
+		}
+		if len(rawProps) > 0 && *database == "" {
+			return errors.New("--prop only applies to database entries (--database)")
 		}
 		where := "your private pages"
-		if !*private {
+		switch {
+		case *database != "":
+			ds, err := resolveDataSource(*database)
+			if err != nil {
+				return err
+			}
+			if props, propSummary, err = buildProps(ds, rawProps, getPage); err != nil {
+				return err
+			}
+			parentID, dataSourceID = ds.Parent.DatabaseID, ds.ID
+			where = fmt.Sprintf("the database %q", ds.name())
+			if ds.DatabaseURL != "" {
+				where += " (" + link(ds.DatabaseURL) + ")"
+			}
+		case !*private:
 			if parentID, err = parsePageID(*parent); err != nil {
 				return err
 			}
@@ -290,14 +349,18 @@ func notionPushCmd(dir string, args []string) error {
 		if title, err = askTitle(suggested, *yes); err != nil {
 			return err
 		}
-		if err := confirm(fmt.Sprintf("Create a new page %q from %s%s under %s?", title, rel, imageSummary(images, uploads), where), *yes); err != nil {
+		what := "page"
+		if dataSourceID != "" {
+			what = "entry"
+		}
+		if err := confirm(fmt.Sprintf("Create a new %s %q from %s%s%s in %s?", what, title, rel, imageSummary(images, uploads), propsSummary(propSummary), where), *yes); err != nil {
 			return err
 		}
 		// Upload first: a failed upload leaves Notion untouched
 		if err := uploadImages(images, uploads); err != nil {
 			return err
 		}
-		if pageID, err = createPage(parentID, title, body); err != nil {
+		if pageID, err = createPage(parentID, dataSourceID, title, body, props); err != nil {
 			return err
 		}
 	}
@@ -305,12 +368,15 @@ func notionPushCmd(dir string, args []string) error {
 	if head, tail, ok := strings.Cut(title, " "); ok && isEmoji(head) {
 		icon, title = head, strings.TrimSpace(tail)
 	}
-	if err := setTitleIcon(pageID, title, icon); err != nil {
-		fmt.Fprintln(os.Stderr, "mdv: content pushed, but setting the title/icon failed:", err)
+	if err := setTitleIcon(pageID, title, icon, props); err != nil {
+		fmt.Fprintln(os.Stderr, "mdv: content pushed, but setting the title/icon/properties failed:", err)
 	}
 	// The page is written either way: record it, but leave it "changed" when
 	// images failed so the next push retries
-	imageErr := attachImages(pageID, images, uploads)
+	var imageErr error
+	if contentWritten {
+		imageErr = attachImages(pageID, images, uploads)
+	}
 	hash, attached := docHash(dir, path, content), map[string]string{}
 	for _, image := range images {
 		attached[image.sha] = uploads[image.sha]
@@ -332,6 +398,7 @@ func notionPushCmd(dir string, args []string) error {
 		PageID:         page.ID,
 		URL:            page.URL,
 		ParentID:       parentID,
+		DataSourceID:   dataSourceID,
 		SHA256:         hash,
 		SyncedAt:       time.Now().UTC().Format(time.RFC3339),
 		LastEditedTime: page.LastEditedTime,
@@ -351,6 +418,14 @@ func notionPushCmd(dir string, args []string) error {
 	}
 	fmt.Println("Pushed:", link(page.URL))
 	return nil
+}
+
+// propsSummary lists the properties a push sets, for the confirmation.
+func propsSummary(summary []string) string {
+	if len(summary) == 0 {
+		return ""
+	}
+	return " setting " + strings.Join(summary, "; ")
 }
 
 // imageSummary describes the images a push includes, for the confirmation.
@@ -585,9 +660,13 @@ func parsePageID(s string) (string, error) {
 // --- Notion API (see notionapi.go for the backends) ---
 
 type notionPage struct {
-	ID             string `json:"id"`
-	URL            string `json:"url"`
-	InTrash        bool   `json:"in_trash"`
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	InTrash bool   `json:"in_trash"`
+	Parent  struct {
+		Type         string `json:"type"`
+		DataSourceID string `json:"data_source_id"`
+	} `json:"parent"`
 	LastEditedTime string `json:"last_edited_time"`
 	LastEditedBy   struct {
 		ID string `json:"id"`
@@ -695,15 +774,27 @@ func isEmoji(s string) bool {
 	return s != ""
 }
 
-// createPage creates a page under parentID, or a top-level private page when
-// parentID is empty.
-func createPage(parentID, title string, body []byte) (string, error) {
+// createPage creates a new entry in a data source when dataSourceID is set,
+// otherwise a page under parentID, or a top-level private page when both are
+// empty. It never creates databases. "title" is the ID of the title property
+// in every database, whatever its name.
+func createPage(parentID, dataSourceID, title string, body []byte, props map[string]any) (string, error) {
 	req := map[string]any{"markdown": string(body)}
-	if parentID != "" {
+	switch {
+	case dataSourceID != "":
+		req["parent"] = map[string]string{"data_source_id": dataSourceID}
+	case parentID != "":
 		req["parent"] = map[string]string{"page_id": parentID}
 	}
+	properties := map[string]any{}
+	for k, v := range props {
+		properties[k] = v
+	}
 	if title != "" {
-		req["properties"] = map[string]any{"title": map[string]any{"title": []any{map[string]any{"type": "text", "text": map[string]string{"content": title}}}}}
+		properties["title"] = map[string]any{"title": []any{map[string]any{"type": "text", "text": map[string]string{"content": title}}}}
+	}
+	if len(properties) > 0 {
+		req["properties"] = properties
 	}
 	payload, _ := json.Marshal(req)
 	out, err := notionRequest("POST", "v1/pages", nil, payload)
@@ -729,19 +820,27 @@ func editPage(id string, body []byte) error {
 	return err
 }
 
-// setTitleIcon sets the title and icon of a page mdv created.
-func setTitleIcon(id, title, icon string) error {
-	props := map[string]any{}
+// setTitleIcon sets the title, icon and any database properties of a page mdv
+// created.
+func setTitleIcon(id, title, icon string, extra map[string]any) error {
+	req := map[string]any{}
+	properties := map[string]any{}
+	for k, v := range extra {
+		properties[k] = v
+	}
 	if title != "" {
-		props["properties"] = map[string]any{"title": map[string]any{"title": []any{map[string]any{"text": map[string]string{"content": title}}}}}
+		properties["title"] = map[string]any{"title": []any{map[string]any{"text": map[string]string{"content": title}}}}
+	}
+	if len(properties) > 0 {
+		req["properties"] = properties
 	}
 	if icon != "" {
-		props["icon"] = map[string]string{"type": "emoji", "emoji": icon}
+		req["icon"] = map[string]string{"type": "emoji", "emoji": icon}
 	}
-	if len(props) == 0 {
+	if len(req) == 0 {
 		return nil
 	}
-	body, _ := json.Marshal(props)
+	body, _ := json.Marshal(req)
 	_, err := notionRequest("PATCH", "v1/pages/"+id, nil, body)
 	return err
 }

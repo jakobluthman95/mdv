@@ -44,16 +44,20 @@ Run `mdv doctor` if a command fails because of setup. It's read-only and checks 
 
 mdv only writes to pages it created, which are recorded in `<docs>/.notion.json`.
 
-1. Ask whether the doc should go to Notion and **where** (which parent page).
+1. Ask whether the doc should go to Notion and **where**: a parent page or a database. A new page gets the access of where it's created. `--private` pages are visible only to the user, and mdv can't change sharing, so for a doc others should read, suggest a shared page or database.
 2. `mdv notion status` lists docs and their sync state. It's read-only.
 3. New pages always get a title. Suggest one based on the H1 (or a readable form of the file name) and let the user change it.
 4. Ask for approval with the exact action:
    - "Create a new page **`<title>`** from `<file>` under `<parent>`", or
+   - "Create a new entry **`<title>`** from `<file>` in the database `<database>` with `<Name=value; …>`", or
    - "Replace the content of `<url>`". For updates, run `mdv notion diff <file>` first (read-only) and show the full diff.
 5. Once approved:
    - New: `mdv notion push <file> --parent <page URL or ID> --title "<title>" --yes` (or `--private` for a top-level private page)
-   - Update: `mdv notion push <file> --yes`
+   - New database entry: `mdv notion push <file> --database <database URL or ID> --title "<title>" --prop "Name=value" … --yes`
+   - Update: `mdv notion push <file> --yes`. Add `--prop "Name=value"` to change a property of a database entry mdv created.
 6. Report the page URL.
+
+**Database properties (`--prop`):** before asking, read the database's properties and options (`ntn api v1/databases/<id> </dev/null` lists its data sources, and `ntn api v1/data_sources/<data source id> </dev/null` shows the properties; `ntn api` waits on stdin unless it's closed), propose values from the existing options, and let the user confirm or change them. mdv refuses new options and two-way relations. Don't try to get around that: tell the user to set those by hand in Notion. Never create or change databases.
 
 If mdv refuses because a page was edited in Notion since the last push, stop and tell the user. Don't work around it. Don't edit `.notion.json` by hand, and don't write to Notion with other tools.
 
