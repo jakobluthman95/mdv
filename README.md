@@ -14,8 +14,8 @@ mdv gives agents (and you) one place and one workflow for it:
 
 The commands are built so an agent can use them safely:
 
-- **Read-only checks first:** `status`, `diff` and `doctor` never write anything.
-- **Confirmation by default:** every write asks for confirmation. `--yes` is only passed after you've approved.
+- **Read-only checks first:** `status`, `diff`, `schema`, `info` and `doctor` never write anything.
+- **Approval for every write:** in a terminal, every write asks `[y/N]`. Agents have no terminal, so they have to pass `--yes`. That's why the skill makes them ask you first, and why you should also [let your agent harness enforce it](#agent-safety).
 - **mdv only touches what it created:** it updates only the Notion pages and gists it made itself, recorded in `.notion.json` and `.share.json`.
 - **No silent overwrites:** it refuses to overwrite edits someone made in Notion.
 - **Local files stay the source of truth:** mdv never edits your docs.
@@ -27,7 +27,7 @@ You can use all of it by hand too. The agent is just the main user.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jakobluthman95/mdv/main/install.sh | sh
 mdv init
-pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+mdv skill install
 mdv doctor
 ```
 
@@ -36,7 +36,7 @@ That's it: install, set up, teach your agent, check. The sections below explain 
 ## Requirements
 
 - **macOS or Linux** (Intel or ARM).
-- **`git`**: `mdv share` uses it to upload images.
+- **`git`**: `mdv share` uses it to upload images, and `mdv notion diff` and updates use it to show diffs.
 - **To publish:** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration).
 
 Browsing docs needs only the binary. Building from source also needs Go 1.27+ and `make`.
@@ -62,7 +62,7 @@ Browsing docs needs only the binary. Building from source also needs Go 1.27+ an
 - **From source:** for working on mdv itself:
 
   ```sh
-  git clone git@github.com:jakobluthman95/mdv.git ~/dev/mdv
+  git clone https://github.com/jakobluthman95/mdv.git ~/dev/mdv
   cd ~/dev/mdv && make install     # builds ~/.local/bin/mdv
   ```
 
@@ -87,10 +87,10 @@ It asks for the docs folder, a Notion token and a GitHub token, and checks each 
 **4. Give your agent the skill.** This is the step that makes mdv useful to an agent:
 
 ```sh
-pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+mdv skill install
 ```
 
-See [AI agents](#ai-agents) for other ways to install it.
+The skill is built into the mdv binary, so it always matches your mdv version. This installs it for Claude Code (`~/.claude/skills/mdv-docs`). Use `--dir` for another agent's skills folder. To install it into several agents at once, use the skills CLI instead. See [AI agents](#ai-agents).
 
 **5. Set up Notion and/or GitHub access** if you skipped the tokens in step 3 and want the agent to publish with `mdv notion` or `mdv share`. See [Configuration](#configuration).
 
@@ -100,7 +100,7 @@ See [AI agents](#ai-agents) for other ways to install it.
 mdv doctor
 ```
 
-`doctor` is read-only. It checks the config file, the docs folder, Notion access and GitHub access, and tells you what's missing.
+`doctor` is read-only. It checks the config file, the docs folder, Notion access, GitHub access and the installed skill, and tells you what's missing.
 
 ### Updating
 
@@ -108,8 +108,10 @@ Run the same install command again, then update the skill:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jakobluthman95/mdv/main/install.sh | sh   # or: go install …@latest, or git pull && make install
-pnpx skills update
+mdv skill install
 ```
+
+`mdv skill install` updates a skill it installed earlier to the new version. If you changed the skill since, it refuses and shows you `mdv skill diff` instead. If you installed it with the skills CLI, run `pnpx skills update` instead.
 
 Your settings in `~/.config/mdv/.env` and your docs are never touched by an update.
 
@@ -118,23 +120,37 @@ Your settings in `~/.config/mdv/.env` and your docs are never touched by an upda
 The skill is what turns mdv from a viewer into an agent workflow. [`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells the agent:
 
 - where docs go and how to name them;
-- the Notion-ready Markdown format (H1 title, GFM only, images next to the doc);
+- the Notion-ready Markdown format (H1 title, GFM plus optional Notion tags, images next to the doc);
 - how to push to Notion and share by link, using the read-only commands first;
 - to **always ask before any write**, stating exactly what will happen.
 
-It uses the open `SKILL.md` format and reads fine as plain Markdown.
+It uses the open `SKILL.md` format and reads fine as plain Markdown. The full Notion element reference, [`notion-markdown.md`](skills/mdv-docs/notion-markdown.md), sits next to it and is installed with it.
 
 Once it's installed, just talk to your agent: "write up these findings", "push that doc to Notion under the team page", "give me a link I can send to a colleague".
 
-### Install with the skills CLI (recommended)
+### Install with mdv (recommended)
+
+Every mdv binary carries the skill for its own version, so the two always match:
 
 ```sh
-pnpx skills add git@github.com:jakobluthman95/mdv.git --skill mdv-docs --global
+mdv skill install   # into ~/.claude/skills/mdv-docs (--dir for another agent's skills folder)
+mdv skill diff      # compare the installed skill with this mdv version's
+mdv skill print     # print it, e.g. to paste into AGENTS.md
 ```
 
-This uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too):
+- **After upgrading mdv,** run `mdv skill install` again to update the skill. mdv keeps a small `.mdv-skill.json` next to the skill to know what it installed.
+- **A skill you changed is never overwritten silently.** This includes a skill mdv didn't install. `install` refuses and points you to `mdv skill diff`. `--force` replaces it.
+- `mdv doctor` tells you whether the installed skill is up to date, outdated or customised.
 
-- It clones the repo with your existing git login.
+### Install with the skills CLI (several agents)
+
+```sh
+pnpx skills add https://github.com/jakobluthman95/mdv --skill mdv-docs --global
+```
+
+Use this to install the skill into every coding agent you use at once. It uses the open [`skills`](https://github.com/vercel-labs/skills) installer (`npx skills …` works too) and needs Node:
+
+- It clones the public repo over HTTPS. No SSH key is needed.
 - It finds `skills/mdv-docs/SKILL.md` and installs it for every coding agent it detects (Claude Code, Codex, Cursor, OpenCode and more).
 - `--global` installs it for your user, so it works in all projects. Leave it out to install into the current project only.
 
@@ -145,7 +161,7 @@ pnpx skills check     # any updates?
 pnpx skills update    # install them
 ```
 
-Run `pnpx skills add git@github.com:jakobluthman95/mdv.git --list` to see what's in the repo without installing anything.
+Run `pnpx skills add https://github.com/jakobluthman95/mdv --list` to see what's in the repo without installing anything.
 
 ### Install by hand
 
@@ -153,6 +169,56 @@ Run `pnpx skills add git@github.com:jakobluthman95/mdv.git --list` to see what's
 - **Anything else:** reference it from your global `AGENTS.md`, or paste it into your agent's instructions.
 
 > 💡 If you already have a skill named `mdv-docs` in an agent's skills folder, remove it or skip that agent first. Otherwise the two will clash.
+
+### Agent safety
+
+The skill tells the agent to ask before every write, but that's an instruction, not a guarantee. The `[y/N]` prompt doesn't help either, because agents have no terminal and must pass `--yes`. To make approval something the agent can't skip, let your agent harness ask you before any mdv write.
+
+**Claude Code:** add this to `~/.claude/settings.json`, merging with any `permissions` you already have:
+
+```json
+{
+  "permissions": {
+    "ask": [
+      "Bash(mdv *--yes*)",
+      "Bash(mdv notion push *)",
+      "Bash(mdv share rm *)",
+      "Bash(ntn *)",
+      "Bash(gh gist *)"
+    ]
+  }
+}
+```
+
+- Every mdv write from an agent needs `--yes`, so you get a prompt showing the exact command. Read-only commands (`status`, `diff`, `schema`, `info`, `doctor`) run without prompts.
+- The `ntn` and `gh gist` rules catch an agent that tries to get around mdv.
+
+Permission rules match how a command is written, so `./mdv …`, `~/.local/bin/mdv …` or `cd x && mdv …` can slip past them. For a guard that catches those too, add the hook in [`contrib/claude-code/mdv-guard.sh`](contrib/claude-code/mdv-guard.sh). It forces a prompt with a clear reason for any mdv call with `--yes`, and for any `ntn` or `gh gist` call. It needs `jq`.
+
+```sh
+mkdir -p ~/.claude/hooks && cp contrib/claude-code/mdv-guard.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/mdv-guard.sh
+```
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "~/.claude/hooks/mdv-guard.sh" }] }
+    ]
+  }
+}
+```
+
+Merge that into `~/.claude/settings.json` and keep the `ask` rules above as a second layer. Run `/hooks` once, or restart Claude Code, so it picks up the hook.
+
+**Other agents:** use their equivalent, for example a command allowlist or an "ask before running" rule for the same commands.
+
+| The agent may | Approval |
+|---|---|
+| Write and update docs in the docs folder | Your normal doc rules |
+| Run read-only commands | None |
+| Create pages, or update pages and gists mdv created | **Required** |
+| Touch anything mdv didn't create, call `ntn` / `gh gist` / APIs directly, or edit `.notion.json` / `.share.json` | Never |
 
 ## Usage
 
@@ -186,6 +252,8 @@ mdv notion push doc.md --private                   # create a top-level private 
 mdv notion push doc.md --database <database URL>   # add a new entry to an existing database
 mdv notion push doc.md                             # update the page mdv created
 mdv notion diff doc.md                             # what an update would change (read-only)
+mdv notion schema <database URL>                   # a database's properties and options (read-only)
+mdv notion info <page URL>                         # a page's title, parent, and whether mdv created it (read-only)
 ```
 
 - The doc's `# H1` becomes the page title, and a leading emoji becomes the icon. New pages ask for a title, and `--title` sets it.
@@ -193,6 +261,29 @@ mdv notion diff doc.md                             # what an update would change
 - Every push asks for confirmation (`--yes` skips the prompt). Updates show a diff first.
 - mdv only touches pages listed in `<docs>/.notion.json`. It refuses to push over content edited in Notion since the last push.
 - **Who can see the page:** a new page gets the access of where it's created. With `--private` only you can see it, and mdv can't change sharing (Notion's API has no way to). To make a doc visible to your team, push it under a shared page or into a shared database.
+
+#### Notion-flavored Markdown
+
+mdv sends docs as [Notion-flavored Markdown](https://developers.notion.com/guides/data-apis/notion-flavored-markdown.md) (`markdown_version: v2`): GFM plus XML-style tags for Notion blocks Markdown doesn't have.
+
+- **Plain GFM is the default and always works.** Existing docs don't need changes.
+- **Notion tags are optional:** toggles (drawers), callouts, columns, tabs, colored text and more. They look native in Notion. The mdv viewer and `mdv share` show a readable fallback, for example a toggle becomes a collapsible `<details>` in a gist.
+- **Every element that differs from plain Markdown** is documented, with syntax and fallbacks, in [`skills/mdv-docs/notion-markdown.md`](skills/mdv-docs/notion-markdown.md).
+- Notion's warnings (for example an unknown tag kept as text) are printed after a push.
+
+```md
+<toggle>
+Full error log
+
+The log goes here. It's hidden until someone opens the toggle.
+</toggle>
+
+<callout icon="⚠️" color="yellow_bg">
+Run the migration before deploying.
+</callout>
+```
+
+Pages pushed before v2 keep working. Their next push switches them over.
 
 #### Databases
 
@@ -329,6 +420,8 @@ Either way, gists are created on the account the token or `gh` belongs to. Image
 | `… was edited in Notion since the last push` | Intentional. Copy the Notion edits into your local doc, or ask before overwriting. mdv won't work around it. |
 | Share: `HTTP 401/403/404` from GitHub | The token is wrong or lacks *Gists: read and write*. |
 | Share: `gh is logged in without the gist scope` | `gh auth refresh -s gist` |
+| `⚠️ Notion: unsupported_tag …` | A tag Notion doesn't know was kept as text. Escape it as `\<tag>` or see [notion-markdown.md](skills/mdv-docs/notion-markdown.md). |
+| `Markdown errors blocked parsing` | The doc isn't valid Notion-flavored Markdown. Nothing was saved. See the rules in [notion-markdown.md](skills/mdv-docs/notion-markdown.md#4-plain-markdown-rules-that-changed-in-v2). |
 | Anything else | Run `mdv doctor`. |
 
 ## Development
@@ -347,9 +440,13 @@ go vet ./... && gofmt -l .
 | `notionapi.go` | Notion backends: direct API (token) or `ntn` |
 | `images.go` | Local image detection, Notion uploads, link rewriting |
 | `share.go` | `mdv share`: gists via GitHub API (token) or `gh` |
+| `notionread.go` | `mdv notion schema` and `mdv notion info` (read-only) |
+| `nfm.go` | Notion-flavored Markdown fallbacks for the viewer and gists |
+| `skill.go`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
 | `doctor.go` | `mdv doctor` |
 | `init.go` | `mdv init` |
 | `version.go` | `mdv --version`, docs folder + welcome doc on first run |
+| `contrib/claude-code/mdv-guard.sh` | Optional Claude Code hook that forces approval for agent writes |
 | `install.sh` | The install script |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | Release pipeline |
 

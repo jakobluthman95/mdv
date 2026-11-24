@@ -363,7 +363,7 @@ func pushToGist(e shareEntry, content []byte, images []localImage) (map[string]s
 			}
 		}
 	}
-	if err := os.WriteFile(filepath.Join(repo, e.File), withRawURLs(content, urls), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, e.File), nfmForGist(withRawURLs(content, urls)), 0o644); err != nil {
 		return nil, err
 	}
 

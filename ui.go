@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -236,13 +235,9 @@ func (m *model) render() {
 		m.vp.SetContent(errStyle.Render(m.err.Error()))
 		return
 	}
-	wrap := min(m.width-2, 120)
-	r, err := glamour.NewTermRenderer(glamour.WithStyles(markdownStyle(m.style)), glamour.WithWordWrap(max(wrap, 20)))
 	out := m.raw
-	if err == nil {
-		if s, err := r.Render(m.raw); err == nil {
-			out = s
-		}
+	if s, err := renderForTerminal(m.raw, m.style, min(m.width-2, 120)); err == nil {
+		out = s
 	}
 	offset := m.vp.YOffset
 	m.vp.SetContent(out)
