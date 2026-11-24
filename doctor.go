@@ -51,6 +51,19 @@ func doctorCmd(dir string) error {
 	good, detail = checkGitHub()
 	report("github", good, detail)
 
+	switch state, _, err := skillStatus(defaultSkillDir()); {
+	case err != nil:
+		info("skill", err.Error())
+	case state == skillMatches:
+		ok("skill", tildify(defaultSkillDir())+" matches this mdv version")
+	case state == skillOutdated:
+		info("skill", tildify(defaultSkillDir())+" is from an older mdv: run mdv skill install to update it")
+	case state == skillCustomised:
+		info("skill", tildify(defaultSkillDir())+" is customised (changed after install, or not installed by mdv): mdv skill diff")
+	default:
+		info("skill", "not installed in "+tildify(defaultSkillDir())+": mdv skill install")
+	}
+
 	if problems {
 		fmt.Println(dimStyle.Render("\nRun mdv init to set up tokens, or see the README for the CLI options."))
 	}

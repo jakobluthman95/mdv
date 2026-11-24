@@ -19,6 +19,7 @@ Usage:
   mdv --dir        print the docs folder path
   mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
+  mdv skill ...    print, diff or install the mdv-docs agent skill (see mdv skill --help)
   mdv init         set up tokens and the docs folder (~/.config/mdv/.env)
   mdv doctor       check the setup (docs folder, Notion and GitHub access)
   mdv --version    print the version
@@ -67,6 +68,12 @@ func main() {
 	}
 	if len(args) > 0 && args[0] == "doctor" {
 		if err := doctorCmd(dir); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "skill" {
+		if err := runSkill(args[1:]); err != nil {
 			fail(err)
 		}
 		return

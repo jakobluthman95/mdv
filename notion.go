@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +41,8 @@ type notionEntry struct {
 	// NotionHash fingerprints the page content as Notion returned it after the
 	// last push, so edits that leave the content alone (sharing, permissions)
 	// don't block the next push.
-	NotionHash string `json:"notionHash,omitempty"`
+	NotionHash      string `json:"notionHash,omitempty"`
+	MarkdownVersion string `json:"markdownVersion,omitempty"`
 }
 
 // notionState maps a doc's path relative to the docs folder to its Notion page.
@@ -113,6 +115,10 @@ const notionUsage = `Usage:
                                              database (URL, view URL or ID)
   mdv notion push <file.md>                  update the page mdv created for <file.md>
   mdv notion diff <file.md>                  show what an update would change (read-only)
+  mdv notion schema <db> [--json]            list a database's properties and options, and
+                                             which ones --prop can set (read-only)
+  mdv notion info <page> [--json]            show a page's title, parent, last edit and
+                                             whether mdv created it (read-only)
 
   --title <title>  page title (a leading emoji becomes the icon). New pages
                    suggest the doc's H1 (or file name) and ask for a title.
@@ -148,6 +154,10 @@ func runNotion(dir string, args []string) error {
 		return notionPushCmd(dir, args[1:])
 	case "diff":
 		return notionDiffCmd(dir, args[1:])
+	case "schema":
+		return notionSchemaCmd(args[1:])
+	case "info":
+		return notionInfoCmd(dir, args[1:])
 	case "-h", "--help", "help":
 		fmt.Println(notionUsage)
 		return nil
@@ -253,7 +263,7 @@ func notionPushCmd(dir string, args []string) error {
 			if e.NotionHash == "" {
 				return fmt.Errorf("%s was edited in Notion since the last push (%s); not overwriting", e.URL, page.LastEditedTime)
 			}
-			current, err := pageContentHash(e.PageID)
+			current, err := pageContentHash(e.PageID, e.markdownVersion())
 			if err != nil {
 				return err
 			}
@@ -293,9 +303,11 @@ func notionPushCmd(dir string, args []string) error {
 			if err := uploadImages(images, uploads); err != nil {
 				return err
 			}
-			if err := editPage(e.PageID, body); err != nil {
+			warnings, err := editPage(e.PageID, body)
+			if err != nil {
 				return err
 			}
+			printNotionWarnings(warnings)
 		} else if err := confirm(fmt.Sprintf("Update the properties of %s (%q)%s?", link(e.URL), title, propsSummary(propSummary)), *yes); err != nil {
 			return err
 		}
@@ -360,9 +372,11 @@ func notionPushCmd(dir string, args []string) error {
 		if err := uploadImages(images, uploads); err != nil {
 			return err
 		}
-		if pageID, err = createPage(parentID, dataSourceID, title, body, props); err != nil {
+		var warnings []notionWarning
+		if pageID, warnings, err = createPage(parentID, dataSourceID, title, body, props); err != nil {
 			return err
 		}
+		printNotionWarnings(warnings)
 	}
 
 	if head, tail, ok := strings.Cut(title, " "); ok && isEmoji(head) {
@@ -386,7 +400,7 @@ func notionPushCmd(dir string, args []string) error {
 	}
 
 	// Read the page back so the next push can tell whether anyone else edited it.
-	notionHash, err := pageContentHash(pageID)
+	notionHash, err := pageContentHash(pageID, markdownVersion)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mdv: pushed, but could not fingerprint the page content:", err)
 	}
@@ -395,17 +409,18 @@ func notionPushCmd(dir string, args []string) error {
 		return fmt.Errorf("page written but could not be read back: %w", err)
 	}
 	state[rel] = notionEntry{
-		PageID:         page.ID,
-		URL:            page.URL,
-		ParentID:       parentID,
-		DataSourceID:   dataSourceID,
-		SHA256:         hash,
-		SyncedAt:       time.Now().UTC().Format(time.RFC3339),
-		LastEditedTime: page.LastEditedTime,
-		LastEditedBy:   page.LastEditedBy.ID,
-		Title:          strings.TrimSpace(icon + " " + title),
-		Images:         attached,
-		NotionHash:     notionHash,
+		PageID:          page.ID,
+		URL:             page.URL,
+		ParentID:        parentID,
+		DataSourceID:    dataSourceID,
+		SHA256:          hash,
+		SyncedAt:        time.Now().UTC().Format(time.RFC3339),
+		LastEditedTime:  page.LastEditedTime,
+		LastEditedBy:    page.LastEditedBy.ID,
+		Title:           strings.TrimSpace(icon + " " + title),
+		Images:          attached,
+		NotionHash:      notionHash,
+		MarkdownVersion: markdownVersion,
 	}
 	if err := state.save(dir); err != nil {
 		return err
@@ -526,7 +541,7 @@ func pageDiff(dir, rel string, e notionEntry, content, body []byte) (string, err
 	old, err := os.ReadFile(snapshotPath(dir, e.PageID))
 	note := ""
 	if errors.Is(err, os.ErrNotExist) {
-		if old, err = getMarkdown(e.PageID); err != nil {
+		if old, err = getMarkdown(e.PageID, markdownVersion); err != nil {
 			return "", err
 		}
 		content = body
@@ -534,21 +549,22 @@ func pageDiff(dir, rel string, e notionEntry, content, body []byte) (string, err
 	} else if err != nil {
 		return "", err
 	}
-	diff, err := gitDiff(rel, old, content)
+	diff, err := gitDiff("notion", "local", rel, old, content)
 	if err != nil || diff == "" {
 		return "", err
 	}
 	return note + diff, nil
 }
 
-// gitDiff renders a git-style diff of old (as on Notion) against new (local).
-func gitDiff(rel string, old, new []byte) (string, error) {
+// gitDiff renders a git-style diff of old against new, labelled oldLabel/rel
+// and newLabel/rel.
+func gitDiff(oldLabel, newLabel, rel string, old, new []byte) (string, error) {
 	tmp, err := os.MkdirTemp("", "mdv-diff-")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(tmp)
-	a, b := filepath.Join("notion", rel), filepath.Join("local", rel)
+	a, b := filepath.Join(oldLabel, rel), filepath.Join(newLabel, rel)
 	for name, data := range map[string][]byte{a: old, b: new} {
 		p := filepath.Join(tmp, name)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -665,6 +681,8 @@ type notionPage struct {
 	InTrash bool   `json:"in_trash"`
 	Parent  struct {
 		Type         string `json:"type"`
+		PageID       string `json:"page_id"`
+		DatabaseID   string `json:"database_id"`
 		DataSourceID string `json:"data_source_id"`
 	} `json:"parent"`
 	LastEditedTime string `json:"last_edited_time"`
@@ -711,8 +729,17 @@ func ntn(stdin []byte, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-func getMarkdown(id string) ([]byte, error) {
-	out, err := notionRequest("GET", "v1/pages/"+id+"/markdown", nil, nil)
+const markdownVersion = "v2"
+
+func (e notionEntry) markdownVersion() string {
+	if e.MarkdownVersion == "" {
+		return "v1"
+	}
+	return e.MarkdownVersion
+}
+
+func getMarkdown(id, version string) ([]byte, error) {
+	out, err := notionRequest("GET", "v1/pages/"+id+"/markdown", url.Values{"markdown_version": {version}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -731,15 +758,20 @@ func getMarkdown(id string) ([]byte, error) {
 
 // pageContentHash fingerprints a page's content. Image links are left out:
 // Notion returns a new signed URL for every read.
-func pageContentHash(id string) (string, error) {
-	md, err := getMarkdown(id)
+func pageContentHash(id, version string) (string, error) {
+	md, err := getMarkdown(id, version)
 	if err != nil {
 		return "", err
 	}
-	return hashBytes(imageURLs.ReplaceAll(md, []byte("![$1]()"))), nil
+	md = imageURLs.ReplaceAll(md, []byte("![$1]()"))
+	md = sourceURLs.ReplaceAll(md, []byte(`source=""`))
+	return hashBytes(md), nil
 }
 
-var imageURLs = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+var (
+	imageURLs  = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	sourceURLs = regexp.MustCompile(`source="[^"]*"`)
+)
 
 func getPage(id string) (notionPage, error) {
 	var p notionPage
@@ -778,8 +810,8 @@ func isEmoji(s string) bool {
 // otherwise a page under parentID, or a top-level private page when both are
 // empty. It never creates databases. "title" is the ID of the title property
 // in every database, whatever its name.
-func createPage(parentID, dataSourceID, title string, body []byte, props map[string]any) (string, error) {
-	req := map[string]any{"markdown": string(body)}
+func createPage(parentID, dataSourceID, title string, body []byte, props map[string]any) (string, []notionWarning, error) {
+	req := map[string]any{"markdown": string(body), "markdown_version": markdownVersion}
 	switch {
 	case dataSourceID != "":
 		req["parent"] = map[string]string{"data_source_id": dataSourceID}
@@ -799,25 +831,51 @@ func createPage(parentID, dataSourceID, title string, body []byte, props map[str
 	payload, _ := json.Marshal(req)
 	out, err := notionRequest("POST", "v1/pages", nil, payload)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var res struct {
-		ID string `json:"id"`
+		ID       string          `json:"id"`
+		Warnings []notionWarning `json:"warnings"`
 	}
 	if err := json.Unmarshal(out, &res); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if res.ID == "" {
-		return "", fmt.Errorf("creating the page returned no page ID: %.200s", out)
+		return "", nil, fmt.Errorf("creating the page returned no page ID: %.200s", out)
 	}
-	return res.ID, nil
+	return res.ID, res.Warnings, nil
 }
 
 // editPage replaces a page's content. It never deletes child pages or databases.
-func editPage(id string, body []byte) error {
-	payload, _ := json.Marshal(map[string]any{"type": "replace_content", "replace_content": map[string]string{"new_str": string(body)}})
-	_, err := notionRequest("PATCH", "v1/pages/"+id+"/markdown", nil, payload)
-	return err
+func editPage(id string, body []byte) ([]notionWarning, error) {
+	payload, _ := json.Marshal(map[string]any{
+		"type":             "replace_content",
+		"replace_content":  map[string]string{"new_str": string(body)},
+		"markdown_version": markdownVersion,
+	})
+	out, err := notionRequest("PATCH", "v1/pages/"+id+"/markdown", nil, payload)
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Warnings []notionWarning `json:"warnings"`
+	}
+	_ = json.Unmarshal(out, &res)
+	return res.Warnings, nil
+}
+
+type notionWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func printNotionWarnings(warnings []notionWarning) {
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "⚠️ Notion: %s: %s\n", w.Code, w.Message)
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(os.Stderr, "Some content may not look as intended in Notion; see skills/mdv-docs/notion-markdown.md.")
+	}
 }
 
 // setTitleIcon sets the title, icon and any database properties of a page mdv
