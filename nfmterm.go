@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -136,7 +137,8 @@ func nfmStylesToANSI(s string) string {
 }
 
 func renderForTerminal(md, style string, width int) (string, error) {
-	converted := string(nfmForTerminal([]byte(md)))
+	meta, body, hasMeta, metaErr := splitFrontmatter([]byte(md))
+	converted := string(nfmForTerminal(body))
 	if strings.Contains(converted, nfmBlockStart) {
 		width -= 4
 	}
@@ -148,5 +150,47 @@ func renderForTerminal(md, style string, width int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return nfmPostRender(out), nil
+	header := ""
+	switch {
+	case metaErr != nil:
+		header = agentIndexError(metaErr)
+	case hasMeta:
+		header = agentIndexHeader(meta, max(width, 20))
+	}
+	return header + nfmPostRender(out), nil
+}
+
+var (
+	indexTitleStyle = lipgloss.NewStyle().Bold(true)
+	indexDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	indexBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1).MarginLeft(2)
+)
+
+func agentIndexHeader(m docMeta, width int) string {
+	var parts []string
+	for _, s := range []string{m.Ticket, strings.Trim(m.Repo+"/"+strings.Join(m.Apps, ","), "/"), m.Type, m.Status, m.PR.String()} {
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	inner := max(width-8, 20)
+	wrap := lipgloss.NewStyle().Width(inner)
+	lines := []string{indexTitleStyle.Render("🤖 " + strings.Join(parts, " · "))}
+	if s := strings.TrimSpace(m.Summary); s != "" {
+		lines = append(lines, wrap.Render(s))
+	}
+	if len(m.Keywords) > 0 {
+		lines = append(lines, indexDimStyle.Inherit(wrap).Render("keywords: "+strings.Join(m.Keywords, ", ")))
+	}
+	for _, c := range m.Caveats {
+		lines = append(lines, indexDimStyle.Inherit(wrap).Render("⚠ "+c))
+	}
+	if m.Updated != "" {
+		lines = append(lines, indexDimStyle.Render("updated "+m.Updated))
+	}
+	return "\n" + indexBoxStyle.Render(strings.Join(lines, "\n")) + "\n"
+}
+
+func agentIndexError(err error) string {
+	return "\n" + indexBoxStyle.Render(indexDimStyle.Render("⚠ "+err.Error())) + "\n"
 }

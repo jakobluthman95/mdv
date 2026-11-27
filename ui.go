@@ -33,11 +33,18 @@ type fileItem struct {
 	rel     string
 	modTime time.Time
 	notion  syncState
+	meta    docMeta
 }
 
 func (f fileItem) Title() string { return f.rel }
 func (f fileItem) Description() string {
-	return f.modTime.Format("2006-01-02 15:04") + " · " + f.notion.String()
+	d := f.modTime.Format("2006-01-02 15:04") + " · " + f.notion.String()
+	for _, s := range []string{f.meta.Ticket, f.meta.Status} {
+		if s != "" {
+			d += " · " + s
+		}
+	}
+	return d
 }
 func (f fileItem) FilterValue() string { return f.rel }
 
@@ -117,6 +124,11 @@ func scanDir(dir string) tea.Cmd {
 		if state, err := loadNotionState(dir); err == nil {
 			for i := range items {
 				items[i].notion = state.status(dir, items[i].rel, items[i].path)
+			}
+		}
+		for i := range items {
+			if b, err := os.ReadFile(items[i].path); err == nil {
+				items[i].meta, _, _, _ = splitFrontmatter(b)
 			}
 		}
 		sort.Slice(items, func(i, j int) bool { return items[i].modTime.After(items[j].modTime) })

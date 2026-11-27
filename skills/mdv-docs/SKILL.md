@@ -1,6 +1,6 @@
 ---
 name: mdv-docs
-description: Write, update, push to Notion or share by secret link the local Markdown documentation kept in the mdv docs folder. Use whenever documentation, findings, plans, notes or a work summary are written, updated, moved, uploaded to Notion (`mdv notion`) or shared by link (`mdv share`), in any repository.
+description: Find, write, update, push to Notion or share by secret link the local Markdown documentation kept in the mdv docs folder. Use before starting work on a ticket or change (to find earlier docs with `mdv find`), and whenever documentation, findings, plans, notes or a work summary are written, updated, moved, uploaded to Notion (`mdv notion`) or shared by link (`mdv share`), in any repository.
 ---
 
 # mdv docs
@@ -8,6 +8,66 @@ description: Write, update, push to Notion or share by secret link the local Mar
 All documentation lives in one local docs folder, viewed with the `mdv` terminal viewer. Run `mdv --dir` to print its path (default `~/dev/md`, changed with `MDV_DIR`). Don't write docs into the repository you're working in unless the user asks for that.
 
 This file follows the open Agent Skills format (`SKILL.md`). Agents without skill support can read it as plain instructions, for example by referencing it from `AGENTS.md`. `mdv skill diff` shows whether this copy matches the installed mdv version.
+
+## Before you start work: find earlier docs
+
+Earlier docs often already explain the code, decisions and pitfalls behind a new task. Before you start work on a ticket or a change in a repo, search the docs folder:
+
+```sh
+mdv find --json --ticket TAP-1234
+mdv find --json --repo web-monorepo fetch headers
+```
+
+- Search with the ticket, the repo (and app, `--app`), and 2–4 key terms from the task. Use `--path` for a folder or file you'll change.
+- `mdv find` is read-only. Results are ranked, say why they matched, and include each doc's agent index: summary, status, PR and caveats. Docs without an index are matched by text, folder and file name.
+- Read the summary and caveats of the top matches, and open the docs that are relevant.
+- Tell the user which earlier docs you found and how they affect the plan, for example "TAP-4968 notes that interceptors moved to ofetch hooks".
+
+## Agent index (every new doc)
+
+Every new doc starts with an **agent index**: YAML frontmatter that lets agents find and understand the doc without reading all of it. mdv strips it before Notion and gists, shows it as a header in the viewer, and ignores it when deciding whether a doc needs re-pushing.
+
+```yaml
+---
+ticket: TAP-1234                 # if there is one
+repo: web-monorepo               # required: repo folder name
+apps: [web-app]                  # monorepo apps or packages involved
+type: investigation              # required: investigation | plan | summary | how-to | reference | bug
+status: in-progress              # required: in-progress | done | abandoned | superseded
+summary: >                       # required: 1–3 sentences, what was done or found, and how
+  Replaced axios with Nuxt $fetch in web-app; api-sdk keeps its HttpAdapter.
+keywords: [axios, fetch, ofetch] # required: terms someone would search for
+paths: [packages/http]           # key files or folders changed or studied
+branch: tap-1234-remove-axios
+pr: 1787                         # number or URL, once there is one
+caveats:                         # what future work must know
+  - Interceptors moved to ofetch hooks (onRequest, onResponseError)
+related: [TAP-4398]              # tickets or doc paths
+created: 2026-11-27
+updated: 2026-11-27              # required
+---
+# 🔍 TAP-1234: Remove axios from web-app
+```
+
+- The summary says **what** and **how**, not just the topic.
+- Caveats are concrete: pitfalls, workarounds, things that broke, decisions others must respect.
+- Keep it current. When work progresses, update `status`, `pr`, `branch` and `updated`, for example after the PR is merged.
+- Never put secrets, credentials or customer data in it.
+- Add an index to every new doc. Don't add one to existing docs unless the user asks. `mdv find --unindexed` lists docs without one.
+- When a newer doc replaces this one, set `status: superseded` and `superseded_by: <doc path>`.
+
+## Starting and checking a doc
+
+Every doc type has a fixed set of `##` sections, in order, so later agents can jump straight to "Caveats" or "For future work". The types are `investigation`, `plan`, `summary`, `bug`, `how-to` and `reference`. [templates.md](templates.md), next to this file, lists each type's sections and what goes in them, plus how to write for the next agent. **Read it before writing a doc.**
+
+1. **Start** a new doc with `mdv new <type> [TICKET] <slug>`, run from inside the repo (and app) the work is about. It writes the skeleton with the agent index filled in (repo, app, branch, dates) and never overwrites an existing doc. Use `--repo`/`--app` when you're not in the repo.
+2. **Fill it in.**
+   - Write the summary and keywords.
+   - Write each section with concrete anchors: paths, names, commands, links.
+   - Give decisions with their reasons.
+   - Make the state explicit (write "None." for empty sections in a done doc).
+   - No wording like "yesterday" or "as discussed".
+3. **Check** with `mdv check <file>`. It's read-only, exits with 1 on errors, and lists warnings. Fix the errors before you report the doc as done, and fix the warnings unless there's a reason not to. `mdv notion push` and `mdv share` also warn when a doc has issues.
 
 ## Where files go
 
@@ -25,9 +85,9 @@ This file follows the open Agent Skills format (`SKILL.md`). Agents without skil
 
 ## Notion-ready format (all new files)
 
-- One `# H1` on the first line. `mdv notion push` sends it as the page title. A leading emoji in the H1 becomes the page icon.
+- One `# H1` on the first line after the agent index. `mdv notion push` sends it as the page title. A leading emoji in the H1 becomes the page icon.
 - Use only `##` and `###` below it.
-- No YAML frontmatter, and no raw HTML except the Notion tags below.
+- No YAML frontmatter other than the agent index, and no raw HTML except the Notion tags below.
 - GFM: tables, `- [ ]` checklists, fenced code blocks with a language tag, and `> 💡 …` blockquotes for callouts.
 - Use absolute URLs. Relative links to other docs break in Notion and in shared gists. Write repo paths as `code`.
 - **Images:** put them in a folder named after the doc (`{name}/` next to `{name}.md`) and reference them by relative path, each on its own line: `![caption](name/screenshot.png)`. Both `mdv notion push` and `mdv share` upload local images. Images outside the docs folder are refused.

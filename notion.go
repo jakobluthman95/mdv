@@ -218,10 +218,11 @@ func notionPushCmd(dir string, args []string) error {
 	if err != nil {
 		return err
 	}
-	content, err := os.ReadFile(path)
+	content, err := readDocBody(path)
 	if err != nil {
 		return err
 	}
+	checkWarnings(path)
 	icon, title, body := splitTitle(content)
 	images, err := localImages(dir, path, content)
 	if err != nil {
@@ -473,7 +474,7 @@ func notionDiffCmd(dir string, args []string) error {
 	if !ok {
 		return fmt.Errorf("%s is not in Notion yet", rel)
 	}
-	content, err := os.ReadFile(path)
+	content, err := readDocBody(path)
 	if err != nil {
 		return err
 	}

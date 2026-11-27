@@ -11,10 +11,11 @@ mdv gives agents (and you) one place and one workflow for it:
 1. **Write:** the [mdv-docs skill](#ai-agents) tells the agent where docs go (one folder outside your repos, default `~/dev/md`, organised by repo) and how to format them so they publish cleanly.
 2. **Review:** `mdv` opens a terminal viewer over every doc, newest first, so you can read what the agent wrote without leaving the terminal.
 3. **Publish, with approval:** the agent can push a doc to Notion (`mdv notion`) or turn it into a secret link (`mdv share`). The skill makes it ask first and show you exactly what will change.
+4. **Find, before new work:** every new doc starts with a short [agent index](#agent-index-and-mdv-find) (ticket, repo, summary, caveats, PR…). Before starting a ticket, the agent runs `mdv find` to see what earlier docs already cover, so it doesn't rediscover the same code and pitfalls.
 
 The commands are built so an agent can use them safely:
 
-- **Read-only checks first:** `status`, `diff`, `schema`, `info` and `doctor` never write anything.
+- **Read-only checks first:** `status`, `diff`, `schema`, `info`, `find`, `check` and `doctor` never write anything.
 - **Approval for every write:** in a terminal, every write asks `[y/N]`. Agents have no terminal, so they have to pass `--yes`. That's why the skill makes them ask you first, and why you should also [let your agent harness enforce it](#agent-safety).
 - **mdv only touches what it created:** it updates only the Notion pages and gists it made itself, recorded in `.notion.json` and `.share.json`.
 - **No silent overwrites:** it refuses to overwrite edits someone made in Notion.
@@ -119,7 +120,8 @@ Your settings in `~/.config/mdv/.env` and your docs are never touched by an upda
 
 The skill is what turns mdv from a viewer into an agent workflow. [`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells the agent:
 
-- where docs go and how to name them;
+- to search earlier docs with `mdv find` before starting work on a ticket or change;
+- where docs go and how to name them, and to start every new doc with an agent index;
 - the Notion-ready Markdown format (H1 title, GFM plus optional Notion tags, images next to the doc);
 - how to push to Notion and share by link, using the read-only commands first;
 - to **always ask before any write**, stating exactly what will happen.
@@ -242,6 +244,78 @@ mdv --help           # all commands and keys
 | `r` | reload file |
 | `esc`, `backspace` | back to the list |
 | `q`, `ctrl+c` | quit |
+
+A doc's [agent index](#agent-index-and-mdv-find) is shown as a compact header above it. The file list shows its ticket and status.
+
+### Agent index and `mdv find`
+
+Every new doc starts with an **agent index**: YAML frontmatter that tells an agent what the doc is about without reading all of it. The skill makes agents write one, and keep it current.
+
+```yaml
+---
+ticket: TAP-4968
+repo: web-monorepo
+apps: [web-app]
+type: investigation        # investigation | plan | summary | how-to | reference | bug
+status: done               # in-progress | done | abandoned | superseded
+summary: >
+  web-app can drop Axios for Nuxt $fetch; api-sdk already uses HttpAdapter.
+keywords: [axios, fetch, ofetch, http]
+paths: [packages/http, packages/api-sdk]
+pr: 1787
+caveats:
+  - Interceptors move to ofetch hooks
+related: [TAP-4398]
+updated: 2026-11-16
+---
+# 🔍 TAP-4968: Migrating web-app off Axios
+```
+
+Required: `repo`, `type`, `status`, `summary`, `keywords`, `updated`. The rest are optional. The full field list and rules are in the [skill](skills/mdv-docs/SKILL.md).
+
+- **It stays local.** mdv strips it before Notion and gists.
+- **Editing only the index doesn't count as a content change,** so updating status or the PR doesn't mark a published doc as needing a re-push.
+- **In the viewer,** it shows as a header box.
+
+`mdv find` searches the docs folder, best match first. It's read-only and builds its index on the fly; there's no index file to keep in sync.
+
+```sh
+mdv find axios fetch                       # words: ticket, keywords, paths, title, summary, caveats, text
+mdv find --ticket TAP-4968                 # a ticket, and docs that list it under related
+mdv find --repo web-monorepo --app web-app --status in-progress
+mdv find --path packages/http              # docs whose paths overlap a folder or file
+mdv find fetch --json                      # for agents: full index, score, and why it matched
+mdv find --unindexed                       # docs without an agent index
+```
+
+Docs without an agent index still match: their repo and app come from the folder (`{repo}/{app}/…`), and the ticket from the file name (`TAP-1234-…`).
+
+### Templates: `mdv new` and `mdv check`
+
+Each doc type has a fixed set of sections, so a later reader (often an agent) can jump straight to what they need. The full guide, including how to write for the next agent, is [`templates.md`](skills/mdv-docs/templates.md).
+
+| Type | Sections |
+|---|---|
+| `investigation` | Question · Findings · Options considered · Recommendation · Open questions · For future work |
+| `plan` | Goal · Approach · Steps · Risks · Out of scope · For future work |
+| `summary` | What changed · Why · How to verify · Caveats · Follow-ups · For future work |
+| `bug` | Symptom · Root cause · Fix · How to verify · Related areas at risk · For future work |
+| `how-to` | When to use · Steps · Troubleshooting |
+| `reference` | Overview · Details · Gotchas |
+
+```sh
+mdv new summary TAP-333 fetch-header-bug   # skeleton with the agent index filled in
+mdv check web-monorepo/web-app/TAP-333-fetch-header-bug.md
+mdv check --all                            # every doc with an agent index
+```
+
+- **`mdv new`**
+  - Run it inside the repo the work is about. It takes repo and app from the folder you're in (`apps/<app>` or `packages/<app>`), the branch from git, and the ticket and dates from the arguments.
+  - `--repo`/`--app` override them, `--print` prints instead of writing, and it never overwrites an existing doc.
+- **`mdv check`** is read-only and exits with 1 on errors.
+  - **Errors:** a missing or invalid agent index, missing required fields, an unknown type or status, missing sections.
+  - **Warnings:** empty sections in a done doc, relative links, wording like "yesterday" or "as discussed", a summary that only repeats the title, and an in-progress doc not updated for 30 days.
+- `mdv notion push` and `mdv share` print a warning when a doc with an agent index has issues.
 
 ### Notion: `mdv notion`
 
@@ -441,6 +515,10 @@ go vet ./... && gofmt -l .
 | `images.go` | Local image detection, Notion uploads, link rewriting |
 | `share.go` | `mdv share`: gists via GitHub API (token) or `gh` |
 | `notionread.go` | `mdv notion schema` and `mdv notion info` (read-only) |
+| `frontmatter.go` | Agent index (YAML frontmatter) parsing and stripping |
+| `find.go` | `mdv find` |
+| `doctypes.go` | Doc types, their sections, and `mdv new` |
+| `check.go` | `mdv check` |
 | `nfm.go` | Notion-flavored Markdown fallbacks for the viewer and gists |
 | `skill.go`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
 | `doctor.go` | `mdv doctor` |

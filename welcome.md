@@ -18,6 +18,17 @@ mdv README.md               # relative path
 mdv ~/dev/some-repo/docs.md # absolute or ~ path
 ```
 
+## Finding docs
+
+Docs written by an agent start with an **agent index**: a short YAML block with the ticket, repo, summary and caveats. It's shown as a header above the doc, and it stays local.
+
+```sh
+mdv find axios fetch          # best match first
+mdv find --ticket TAP-1234    # one ticket, and docs related to it
+mdv new summary TAP-1234 x    # start a doc from a template
+mdv check <file.md>           # check it
+```
+
 ## Rendering check
 
 | Feature     | Supported |

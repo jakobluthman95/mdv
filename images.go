@@ -85,6 +85,7 @@ func withRawURLs(body []byte, urls map[string]string) []byte {
 // docHash covers a doc and the local images it references, so a changed image
 // counts as a change. Docs without local images hash to their content hash.
 func docHash(dir, path string, content []byte) string {
+	content = stripFrontmatter(content)
 	images, err := localImages(dir, path, content)
 	if err != nil || len(images) == 0 {
 		return hashBytes(content)

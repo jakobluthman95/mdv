@@ -17,6 +17,9 @@ Usage:
   mdv              browse .md files in the docs folder (%s)
   mdv <file.md>    open a single file (relative or absolute path, ~ supported)
   mdv --dir        print the docs folder path
+  mdv new ...      start a doc from a template (see mdv new --help)
+  mdv check ...    check docs against the agent-index and template rules
+  mdv find ...     find docs by agent index and text (see mdv find --help)
   mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
   mdv skill ...    print, diff or install the mdv-docs agent skill (see mdv skill --help)
@@ -68,6 +71,27 @@ func main() {
 	}
 	if len(args) > 0 && args[0] == "doctor" {
 		if err := doctorCmd(dir); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "new" {
+		if err := newCmd(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "check" {
+		if err := checkCmd(dir, args[1:]); err != nil {
+			if errors.Is(err, errCheckFailed) {
+				os.Exit(1)
+			}
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "find" {
+		if err := findCmd(dir, args[1:]); err != nil {
 			fail(err)
 		}
 		return

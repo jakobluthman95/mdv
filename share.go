@@ -156,10 +156,11 @@ func shareCmd(dir string, args []string) error {
 	if err != nil {
 		return err
 	}
-	content, err := os.ReadFile(path)
+	content, err := readDocBody(path)
 	if err != nil {
 		return err
 	}
+	checkWarnings(path)
 	images, err := localImages(dir, path, content)
 	if err != nil {
 		return err
