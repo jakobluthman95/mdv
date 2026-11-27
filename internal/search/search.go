@@ -20,7 +20,7 @@ const findUsage = `Usage:
   --ticket <T>   only docs for ticket T (or that list it under related)
   --repo <R>     only docs for repo R
   --app <A>      only docs for app or package A
-  --status <S>   only docs with status S (in-progress, done, abandoned, superseded)
+  --status <S>   only docs with status S (in-progress, done, abandoned, superseded, regressed)
   --path <P>     only docs whose paths overlap P (or that mention it)
   --limit <N>    at most N results (default 10)
   --json         print JSON, for agents
@@ -28,17 +28,22 @@ const findUsage = `Usage:
 Docs without an agent index still match: repo and app come from their folder
 ({repo}/{app}/…) and the ticket from the file name (TAP-1234-…).`
 
-type findResult struct {
+type Doc struct {
 	Path     string    `json:"path"`
 	AbsPath  string    `json:"absPath"`
 	Title    string    `json:"title"`
 	Indexed  bool      `json:"indexed"`
-	Score    int       `json:"score"`
-	Matched  []string  `json:"matched,omitempty"`
 	Meta     docs.Meta `json:"meta"`
 	IndexErr string    `json:"indexError,omitempty"`
 	modTime  int64
 	body     string
+}
+
+type findResult struct {
+	Doc
+	Score    int      `json:"score"`
+	Matched  []string `json:"matched,omitempty"`
+	Warnings []string `json:"warnings"`
 }
 
 type findQuery struct {
@@ -46,15 +51,17 @@ type findQuery struct {
 	ticket, repo, app, status, pp string
 }
 
-func loadFindDocs(dir string) []findResult {
-	var found []findResult
+// LoadDocs reads every doc in dir. Docs without an agent index get repo and
+// app from their folder and the ticket from the file name.
+func LoadDocs(dir string) []Doc {
+	var found []Doc
 	for _, f := range docs.MarkdownFiles(dir) {
 		b, err := os.ReadFile(f.Path)
 		if err != nil {
 			continue
 		}
 		meta, body, ok, ferr := docs.SplitFrontmatter(b)
-		r := findResult{Path: f.Rel, AbsPath: f.Path, Indexed: ok && ferr == nil, Meta: meta, modTime: f.ModTime.Unix(), body: string(body)}
+		r := Doc{Path: f.Rel, AbsPath: f.Path, Indexed: ok && ferr == nil, Meta: meta, modTime: f.ModTime.Unix(), body: string(body)}
 		if ferr != nil {
 			r.IndexErr = ferr.Error()
 		}
@@ -175,8 +182,10 @@ func (q findQuery) score(r *findResult) {
 }
 
 func findDocs(dir string, q findQuery, limit int) []findResult {
+	all := LoadDocs(dir)
 	var out []findResult
-	for _, r := range loadFindDocs(dir) {
+	for _, d := range all {
+		r := findResult{Doc: d}
 		if !q.keep(&r) {
 			continue
 		}
@@ -184,6 +193,7 @@ func findDocs(dir string, q findQuery, limit int) []findResult {
 		if len(q.terms) > 0 && r.Score == 0 {
 			continue
 		}
+		r.Warnings = Warnings(all, r.Doc)
 		out = append(out, r)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -226,7 +236,7 @@ func Run(dir string, args []string) error {
 
 	if *unindexed {
 		var paths []string
-		for _, r := range loadFindDocs(dir) {
+		for _, r := range LoadDocs(dir) {
 			if !r.Indexed {
 				paths = append(paths, r.Path)
 			}
@@ -279,6 +289,9 @@ func Run(dir string, args []string) error {
 		}
 		if len(r.Meta.Caveats) > 0 {
 			fmt.Printf("    ⚠ %d caveat(s)\n", len(r.Meta.Caveats))
+		}
+		for _, w := range r.Warnings {
+			fmt.Println("    ⚠ " + w)
 		}
 		if len(r.Matched) > 0 {
 			fmt.Println("    " + term.DimStyle.Render("matched: "+strings.Join(r.Matched, ", ")))

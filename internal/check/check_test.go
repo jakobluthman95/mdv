@@ -2,12 +2,14 @@ package check
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jakobluthman95/mdv/internal/docs"
+	"github.com/jakobluthman95/mdv/internal/search"
 )
 
 var checkNow = time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)
@@ -21,7 +23,7 @@ func issuesText(issues []Issue) string {
 }
 
 func goodSummaryDoc() string {
-	return "---\nticket: TAP-1\nrepo: web-monorepo\ntype: summary\nstatus: done\nsummary: Replaced axios with Nuxt $fetch in web-app and moved interceptors to hooks.\nkeywords: [axios, fetch]\nupdated: 2026-11-27\n---\n# ✅ TAP-1: Remove axios\n\n## What changed\n\n`packages/http/src/client.ts` uses `$fetch.create`.\n\n## Why\n\nSmaller bundle.\n\n## How to verify\n\nRun the app.\n\n## Caveats\n\nNone.\n\n## Follow-ups\n\nNone.\n\n## For future work\n\nKeep hooks in one place.\n"
+	return "---\nticket: TAP-1\nrepo: web-monorepo\ntype: summary\nstatus: done\nsummary: Replaced axios with Nuxt $fetch in web-app and moved interceptors to hooks.\nkeywords: [axios, fetch]\nverification: [Ran the app and checked the network tab]\nupdated: 2026-11-27\n---\n# ✅ TAP-1: Remove axios\n\n## What changed\n\n`packages/http/src/client.ts` uses `$fetch.create`.\n\n## Why\n\nSmaller bundle.\n\n## How to verify\n\nRun the app.\n\n## Caveats\n\nNone.\n\n## Follow-ups\n\nNone.\n\n## For future work\n\nKeep hooks in one place.\n"
 }
 
 func TestCheckCleanDoc(t *testing.T) {
@@ -91,5 +93,57 @@ func TestTemplatesDocMatchesDocTypes(t *testing.T) {
 		if strings.Join(got, "|") != strings.Join(dt.Sections, "|") {
 			t.Errorf("%s: templates.md lists %v, mdv uses %v", dt.Name, got, dt.Sections)
 		}
+	}
+}
+
+func hasIssue(issues []Issue, level, want string) bool {
+	for _, i := range issues {
+		if i.Level == level && strings.Contains(i.Message, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCheckRegressionRules(t *testing.T) {
+	regressed := strings.Replace(goodSummaryDoc(), "status: done", "status: regressed", 1)
+	if issues := Doc([]byte(regressed), checkNow); !hasIssue(issues, "error", "status is regressed but issues is empty") {
+		t.Errorf("regressed without issues:\n%s", issuesText(issues))
+	}
+	noFound := strings.Replace(regressed, "updated: 2026-11-27", "issues:\n  - ticket: TAP-555\n    note: broke again\nupdated: 2026-11-27", 1)
+	issues := Doc([]byte(noFound), checkNow)
+	if !hasIssue(issues, "error", "issues entry 1 has no found date") || hasIssue(issues, "error", "status is regressed") {
+		t.Errorf("issue without found:\n%s", issuesText(issues))
+	}
+	noVerification := strings.Replace(goodSummaryDoc(), "verification: [Ran the app and checked the network tab]\n", "", 1)
+	if issues := Doc([]byte(noVerification), checkNow); !hasIssue(issues, "warning", "verification is empty in a done summary") {
+		t.Errorf("done summary without verification:\n%s", issuesText(issues))
+	}
+	inProgress := strings.Replace(noVerification, "status: done", "status: in-progress", 1)
+	if issues := Doc([]byte(inProgress), checkNow); hasIssue(issues, "warning", "verification") {
+		t.Errorf("verification is only required once done:\n%s", issuesText(issues))
+	}
+}
+
+func TestCheckBuildsOn(t *testing.T) {
+	dir := t.TempDir()
+	base := strings.Replace(strings.Replace(goodSummaryDoc(), "status: done", "status: regressed", 1), "updated: 2026-11-27", "issues:\n  - ticket: TAP-555\n    found: 2026-11-20\nupdated: 2026-11-27", 1)
+	if err := os.MkdirAll(filepath.Join(dir, "web-monorepo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "web-monorepo", "TAP-1-remove-axios.md"), []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	all := search.LoadDocs(dir)
+	doc := strings.Replace(strings.Replace(goodSummaryDoc(), "ticket: TAP-1", "ticket: TAP-2", 1), "updated: 2026-11-27", "builds_on: [TAP-1, web-monorepo/missing]\nupdated: 2026-11-27", 1)
+	issues := DocIn(all, filepath.Join(dir, "web-monorepo", "TAP-2.md"), []byte(doc), checkNow)
+	if !hasIssue(issues, "warning", "builds_on web-monorepo/missing matches no doc") {
+		t.Errorf("unresolved builds_on:\n%s", issuesText(issues))
+	}
+	if !hasIssue(issues, "warning", "builds on TAP-1, which regressed (TAP-555); re-check this work") {
+		t.Errorf("regressed dependency:\n%s", issuesText(issues))
+	}
+	if issues := Doc([]byte(doc), checkNow); hasIssue(issues, "warning", "builds") {
+		t.Errorf("Doc has no folder context and should not check builds_on:\n%s", issuesText(issues))
 	}
 }

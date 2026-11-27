@@ -15,7 +15,7 @@ var Types = []Type{
 	{"reference", "📖", []string{"Overview", "Details", "Gotchas"}},
 }
 
-var Statuses = []string{"in-progress", "done", "abandoned", "superseded"}
+var Statuses = []string{"in-progress", "done", "abandoned", "superseded", "regressed"}
 
 func LookupType(name string) (Type, bool) {
 	for _, t := range Types {

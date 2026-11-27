@@ -137,7 +137,9 @@ func nfmStylesToANSI(s string) string {
 	return b.String()
 }
 
-func ForTerminal(md, style string, width int) (string, error) {
+// ForTerminal renders a doc for the viewer. warnings are extra regression
+// warnings for the agent-index header, e.g. dependencies that regressed.
+func ForTerminal(md, style string, width int, warnings ...string) (string, error) {
 	meta, body, hasMeta, metaErr := docs.SplitFrontmatter([]byte(md))
 	converted := string(nfmForTerminal(body))
 	if strings.Contains(converted, nfmBlockStart) {
@@ -156,7 +158,7 @@ func ForTerminal(md, style string, width int) (string, error) {
 	case metaErr != nil:
 		header = agentIndexError(metaErr)
 	case hasMeta:
-		header = agentIndexHeader(meta, max(width, 20))
+		header = agentIndexHeader(meta, max(width, 20), warnings)
 	}
 	return header + nfmPostRender(out), nil
 }
@@ -164,10 +166,11 @@ func ForTerminal(md, style string, width int) (string, error) {
 var (
 	indexTitleStyle = lipgloss.NewStyle().Bold(true)
 	indexDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	indexWarnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	indexBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1).MarginLeft(2)
 )
 
-func agentIndexHeader(m docs.Meta, width int) string {
+func agentIndexHeader(m docs.Meta, width int, warnings []string) string {
 	var parts []string
 	for _, s := range []string{m.Ticket, strings.Trim(m.Repo+"/"+strings.Join(m.Apps, ","), "/"), m.Type, m.Status, m.PR.String()} {
 		if s != "" {
@@ -177,6 +180,20 @@ func agentIndexHeader(m docs.Meta, width int) string {
 	inner := max(width-8, 20)
 	wrap := lipgloss.NewStyle().Width(inner)
 	lines := []string{indexTitleStyle.Render("🤖 " + strings.Join(parts, " · "))}
+	warn := indexWarnStyle.Inherit(wrap)
+	label := "open issue"
+	if m.Status == "regressed" {
+		label = "regressed"
+		if len(m.OpenIssues()) == 0 {
+			lines = append(lines, warn.Render("⚠ regressed"))
+		}
+	}
+	for _, i := range m.OpenIssues() {
+		lines = append(lines, warn.Render(strings.TrimSpace("⚠ "+label+": "+i.Ticket+" "+strings.Join(strings.Fields(i.Note), " "))))
+	}
+	for _, w := range warnings {
+		lines = append(lines, warn.Render("⚠ "+w))
+	}
 	if s := strings.TrimSpace(m.Summary); s != "" {
 		lines = append(lines, wrap.Render(s))
 	}

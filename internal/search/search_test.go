@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +107,35 @@ func TestFindJSONAndUnindexed(t *testing.T) {
 	out = captureStdout(t, func() error { return Run(dir, []string{"nomatch", "--json"}) })
 	if out != "[]\n" {
 		t.Fatalf("no results should be an empty JSON array, got %q", out)
+	}
+}
+
+func TestFindRegressionWarnings(t *testing.T) {
+	dir := writeDocs(t, map[string]string{
+		"web-monorepo/TAP-222-remove-axios.md": "---\nticket: TAP-222\nrepo: web-monorepo\nstatus: regressed\nkeywords: [axios]\nissues:\n  - ticket: TAP-555\n    found: 2026-11-20\n---\n# Remove axios\n",
+		"web-monorepo/TAP-333-retries.md":      "---\nticket: TAP-333\nrepo: web-monorepo\nstatus: done\nkeywords: [axios, retries]\nbuilds_on: [TAP-222]\n---\n# Retries\n",
+		"web-monorepo/TAP-444-unrelated.md":    "---\nticket: TAP-444\nrepo: web-monorepo\nstatus: done\nkeywords: [axios, cache]\n---\n# Cache\n",
+	})
+	out := captureStdout(t, func() error { return Run(dir, []string{"axios", "--json"}) })
+	var results []findResult
+	if err := json.Unmarshal([]byte(out), &results); err != nil || len(results) != 3 {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	got := map[string][]string{}
+	for _, r := range results {
+		got[r.Meta.Ticket] = r.Warnings
+	}
+	if w := got["TAP-222"]; len(w) != 1 || w[0] != "regressed (TAP-555)" {
+		t.Errorf("regressed doc: %q", w)
+	}
+	if w := got["TAP-333"]; len(w) != 1 || w[0] != "builds on TAP-222, which regressed (TAP-555)" {
+		t.Errorf("doc building on it: %q", w)
+	}
+	if w := got["TAP-444"]; w == nil || len(w) != 0 {
+		t.Errorf("unrelated doc should have an empty list: %#v", w)
+	}
+	text := captureStdout(t, func() error { return Run(dir, []string{"axios"}) })
+	if !strings.Contains(text, "⚠ regressed (TAP-555)") || !strings.Contains(text, "⚠ builds on TAP-222, which regressed (TAP-555)") {
+		t.Errorf("text output:\n%s", text)
 	}
 }

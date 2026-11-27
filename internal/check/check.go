@@ -12,6 +12,7 @@ import (
 
 	"github.com/jakobluthman95/mdv/internal/docs"
 	"github.com/jakobluthman95/mdv/internal/render"
+	"github.com/jakobluthman95/mdv/internal/search"
 	"github.com/jakobluthman95/mdv/internal/term"
 )
 
@@ -26,6 +27,10 @@ or status, missing sections for the doc's type. Warnings: empty sections in a
 done doc, relative links, wording that only makes sense in the moment
 ("yesterday", "as discussed"), a summary that just repeats the title, and an
 in-progress doc that hasn't been updated for 30 days.
+Regressions: a regressed status needs issues, and each issue a ticket and a
+found date (errors); builds_on entries that match no doc, or that point at
+work that regressed or has open issues, and a done summary or bug without
+verification are warnings.
 Exits with status 1 when any doc has errors.`
 
 type Issue struct {
@@ -59,7 +64,14 @@ func normalizeHeading(h string) string {
 	return strings.ToLower(strings.TrimSpace(docs.StripEmoji(strings.TrimSpace(h))))
 }
 
+// Doc checks one doc on its own. DocIn also checks what it builds on.
 func Doc(content []byte, now time.Time) []Issue {
+	return DocIn(nil, "", content, now)
+}
+
+// DocIn checks one doc against the other docs in the folder: all is the
+// folder's docs (search.LoadDocs) and path the doc's absolute path.
+func DocIn(all []search.Doc, path string, content []byte, now time.Time) []Issue {
 	var issues []Issue
 	add := func(level, format string, a ...any) {
 		issues = append(issues, Issue{level, fmt.Sprintf(format, a...)})
@@ -91,6 +103,28 @@ func Doc(content []byte, now time.Time) []Issue {
 	}
 	if meta.Status == "superseded" && meta.SupersededBy == "" {
 		add("warning", "agent index: status is superseded but superseded_by is empty")
+	}
+	if meta.Status == "regressed" && len(meta.Issues) == 0 {
+		add("error", "agent index: status is regressed but issues is empty; record the ticket and the date it was found")
+	}
+	for n, i := range meta.Issues {
+		if strings.TrimSpace(i.Ticket) == "" {
+			add("error", "agent index: issues entry %d has no ticket", n+1)
+		}
+		if strings.TrimSpace(i.Found) == "" {
+			add("error", "agent index: issues entry %d has no found date", n+1)
+		}
+	}
+	if meta.Status == "done" && (meta.Type == "summary" || meta.Type == "bug") && len(meta.Verification) == 0 {
+		add("warning", "agent index: verification is empty in a done %s; list how the work was verified", meta.Type)
+	}
+	if all != nil {
+		for _, ref := range search.Unresolved(all, meta) {
+			add("warning", "agent index: builds_on %s matches no doc in the docs folder", ref)
+		}
+		for _, u := range search.RegressedUpstream(all, search.Doc{AbsPath: path, Meta: meta}) {
+			add("warning", "%s; re-check this work", u.Message)
+		}
 	}
 	if meta.Status == "in-progress" {
 		if d, err := time.Parse("2006-01-02", meta.Updated); err == nil && now.Sub(d) > 30*24*time.Hour {
@@ -201,6 +235,7 @@ func Run(dir string, args []string) error {
 		targets = append(targets, target{path, rel})
 	}
 
+	folder := search.LoadDocs(dir)
 	var results []checkResult
 	failed := false
 	for _, tg := range targets {
@@ -208,7 +243,7 @@ func Run(dir string, args []string) error {
 		if err != nil {
 			return err
 		}
-		r := checkResult{Path: tg.rel, Issues: Doc(b, time.Now())}
+		r := checkResult{Path: tg.rel, Issues: DocIn(folder, tg.path, b, time.Now())}
 		if r.Issues == nil {
 			r.Issues = []Issue{}
 		}
@@ -258,7 +293,11 @@ func Warnings(path string) {
 	if _, _, ok, _ := docs.SplitFrontmatter(b); !ok {
 		return
 	}
-	if n := len(Doc(b, time.Now())); n > 0 {
+	var all []search.Doc
+	if dir, err := docs.Dir(); err == nil {
+		all = search.LoadDocs(dir)
+	}
+	if n := len(DocIn(all, path, b, time.Now())); n > 0 {
 		fmt.Fprintf(os.Stderr, "⚠ mdv check found %d issue(s) in %s; run mdv check on it\n", n, term.Tildify(path))
 	}
 }

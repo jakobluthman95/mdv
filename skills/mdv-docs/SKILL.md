@@ -33,7 +33,7 @@ ticket: TAP-1234                 # if there is one
 repo: web-monorepo               # required: repo folder name
 apps: [web-app]                  # monorepo apps or packages involved
 type: investigation              # required: investigation | plan | summary | how-to | reference | bug
-status: in-progress              # required: in-progress | done | abandoned | superseded
+status: in-progress              # required: in-progress | done | regressed | abandoned | superseded
 summary: >                       # required: 1–3 sentences, what was done or found, and how
   Replaced axios with Nuxt $fetch in web-app; api-sdk keeps its HttpAdapter.
 keywords: [axios, fetch, ofetch] # required: terms someone would search for
@@ -43,6 +43,11 @@ pr: 1787                         # number or URL, once there is one
 caveats:                         # what future work must know
   - Interceptors moved to ofetch hooks (onRequest, onResponseError)
 related: [TAP-4398]              # tickets or doc paths
+builds_on: [TAP-4968]            # earlier work this relies on (confirmed with the user, see below)
+verification:                    # how the work was checked
+  - Unit tests in packages/http; manually tested login in staging
+merged: 2026-11-27               # when the PR merged
+issues: []                       # problems found later: {ticket, found, note, fixed_by}
 created: 2026-11-27
 updated: 2026-11-27              # required
 ---
@@ -68,6 +73,42 @@ Every doc type has a fixed set of `##` sections, in order, so later agents can j
    - Make the state explicit (write "None." for empty sections in a done doc).
    - No wording like "yesterday" or "as discussed".
 3. **Check** with `mdv check <file>`. It's read-only, exits with 1 on errors, and lists warnings. Fix the errors before you report the doc as done, and fix the warnings unless there's a reason not to. `mdv notion push` and `mdv share` also warn when a doc has issues.
+
+## Building on earlier work
+
+A merged PR isn't proof that the work holds up: a bug can surface weeks later. Before new work relies on an earlier doc (its code, its decisions or its "it works"), check that doc first.
+
+1. **Pick** the docs from `mdv find` that the new work will actually rely on.
+2. **Check each one:**
+   - Run `mdv signals <doc or ticket> --json`. It's read-only and reports, since the doc's `merged` date:
+     - fix, revert, hotfix and regression commits on the doc's `paths`
+     - reverted PRs
+     - recorded `issues`
+     - regressed docs it builds on
+
+     If it can't check something (no `paths`, repo not found locally, no `gh`), it says so. Treat that as unknown, not as clean.
+   - **Jira** (if you have an Atlassian/Jira connector; read-only): bug tickets linked to the doc's ticket, a reopened ticket, or new comments since `merged`.
+   - **Sentry** (if you have a Sentry connector): new or rising issues in the doc's area (its `paths`, `apps` or feature) since `merged`.
+   - **If you don't have a connector, say so plainly,** for example: "I couldn't check Jira or Sentry (not connected), so regressions reported there won't show up here."
+3. **Ask the user** to confirm the doc is still valid before you rely on it. Show what you checked and what you found, including what you couldn't check.
+4. **Record** the confirmed docs under `builds_on` in the new doc's agent index.
+
+## When a regression is found
+
+When earlier work turns out to be broken, for example a bug traced back to it:
+
+1. **With the user's approval,** update that doc's agent index:
+   - set `status: regressed`
+   - add an `issues` entry with `ticket`, `found` (date) and a short `note`
+   - update `updated`
+2. **Run `mdv impact <doc or ticket>`** and report everything that builds on it, directly or indirectly, to the user as work to re-check. Docs that only list it under `related` are shown separately, as "may be affected".
+3. **Don't edit the downstream docs.** `mdv find`, `mdv check` and the viewer flag them automatically.
+4. **When it's fixed,** add `fixed_by: <ticket>` to the issue and set `status` back (`done`, or `in-progress` while the fix is open).
+
+While writing any doc:
+- Fill in `verification` (how the work was tested).
+- Set `merged` (the date) and `pr` when the PR merges.
+- Keep `builds_on` honest: list only what the work really relies on.
 
 ## Where files go
 
@@ -118,6 +159,8 @@ The full list of elements, syntax and fallbacks is in [notion-markdown.md](notio
    - Escape literal tags in text as `\<tag>`.
 
 ## Before you write anything outside the docs folder
+
+**Publishing is optional.** mdv works fully without Notion or GitHub. Before offering to push to Notion or share a link, check that it's set up: `mdv doctor` shows `not set up (optional …)` when it isn't. If it isn't set up, don't offer it, and don't ask about Notion after writing a doc.
 
 Reading is always fine. **Every Notion write and every share needs the user's explicit approval first.** Tell the user exactly what will happen, then wait. The user's agent may also be set up to prompt for every `mdv … --yes` command. That's expected: it's the second half of the approval, not an error.
 

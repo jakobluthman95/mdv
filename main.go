@@ -8,6 +8,7 @@ import (
 	"github.com/jakobluthman95/mdv/internal/check"
 	"github.com/jakobluthman95/mdv/internal/docs"
 	"github.com/jakobluthman95/mdv/internal/notion"
+	"github.com/jakobluthman95/mdv/internal/safeguard"
 	"github.com/jakobluthman95/mdv/internal/search"
 	"github.com/jakobluthman95/mdv/internal/setup"
 	"github.com/jakobluthman95/mdv/internal/share"
@@ -30,6 +31,8 @@ Usage:
   mdv new ...      start a doc from a template (see mdv new --help)
   mdv check ...    check docs against the agent-index and template rules
   mdv find ...     find docs by agent index and text (see mdv find --help)
+  mdv signals ...  look for signs that a doc's work regressed (see mdv signals --help)
+  mdv impact ...   list the docs that build on a doc (see mdv impact --help)
   mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
   mdv skill ...    print, diff or install the mdv-docs agent skill (see mdv skill --help)
@@ -107,6 +110,18 @@ func main() {
 	}
 	if len(args) > 0 && args[0] == "find" {
 		if err := search.Run(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "signals" {
+		if err := safeguard.RunSignals(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "impact" {
+		if err := safeguard.RunImpact(dir, args[1:]); err != nil {
 			fail(err)
 		}
 		return

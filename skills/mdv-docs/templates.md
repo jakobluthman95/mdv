@@ -11,6 +11,7 @@ A doc is read later, by someone, often an agent, who wasn't in this conversation
 - **Name things.** Give file paths, components, functions, endpoints, commands, versions, and PR or commit links. Not "the HTTP layer", but `packages/http/src/client.ts`.
 - **Give the reason for each decision.** "Chose X over Y because Z". Otherwise the next person undoes it.
 - **Make the state explicit:** done, not done, open. Write "None." for an empty section in a finished doc, so it's clear nothing was forgotten.
+- **Record how it was checked and what it relies on.** `verification` lists how the work was tested, and `builds_on` lists the earlier work it depends on. When a bug later turns up in that earlier work, `mdv impact` uses `builds_on` to find everything affected.
 - **No wording that only works in the moment.** Not "yesterday", "as discussed" or "the bug above". Use dates, links and names.
 - **Put what matters for later work in "For future work":** what still applies, what's temporary, what breaks if someone changes it, and where to look first.
 - **Keep the agent index current.** Update `status`, `pr` and `updated` as work moves on. When a newer doc replaces this one, set `status: superseded` and `superseded_by`.

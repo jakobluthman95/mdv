@@ -57,6 +57,9 @@ func Init(args []string) error {
 		}
 	}
 
+	fmt.Println("mdv works fully without Notion or GitHub: those questions are only for")
+	fmt.Println("publishing (mdv notion, mdv share). Press enter to skip them.")
+	fmt.Println()
 	if exists {
 		fmt.Printf("Updating %s. Press enter to keep a value.\n\n", term.Tildify(path))
 	} else {
@@ -118,11 +121,13 @@ const initUsage = `Usage:
   mdv init --edit   open the settings file in $EDITOR (created from the
                     built-in template if it doesn't exist)
 
-Every question can be skipped: without tokens, mdv uses the ntn and gh CLIs.
+mdv works fully without Notion or GitHub; their questions are only for
+publishing (mdv notion, mdv share) and can be skipped. Without tokens, mdv
+uses the ntn and gh CLIs when they are installed.
 Running it again shows the current values and lets you change them.`
 
 // askToken asks for one token, hidden, and checks it right away.
-func askToken(values, current map[string]string, fromShell map[string]bool, key, intro, fallback string, check func() (bool, string)) {
+func askToken(values, current map[string]string, fromShell map[string]bool, key, intro, fallback string, check func() (term.Access, string)) {
 	fmt.Println("\n" + intro)
 	for {
 		if cur := current[key]; cur != "" {
@@ -152,16 +157,19 @@ func askToken(values, current map[string]string, fromShell map[string]bool, key,
 		} else {
 			os.Unsetenv(key)
 		}
-		good, detail := check()
-		if good {
+		state, detail := check()
+		switch state {
+		case term.AccessOK:
 			fmt.Println("  ✓ " + detail)
-		} else {
+		case term.NotSetUp:
+			fmt.Println("  · " + detail)
+		default:
 			fmt.Println("  ✗ " + detail)
 		}
 		if fromShell[key] {
 			fmt.Println(term.DimStyle.Render("  note: " + key + " is also set in your shell, which takes priority over the file"))
 		}
-		if good || values[key] == "" {
+		if state != term.AccessBroken || values[key] == "" {
 			return
 		}
 		fmt.Print("  Try another token? n keeps this one anyway [Y/n] ")

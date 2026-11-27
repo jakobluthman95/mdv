@@ -15,7 +15,7 @@ mdv gives agents (and you) one place and one workflow for it:
 
 The commands are built so an agent can use them safely:
 
-- **Read-only checks first:** `status`, `diff`, `schema`, `info`, `find`, `check` and `doctor` never write anything.
+- **Read-only checks first:** `status`, `diff`, `schema`, `info`, `find`, `check`, `signals`, `impact` and `doctor` never write anything.
 - **Approval for every write:** in a terminal, every write asks `[y/N]`. Agents have no terminal, so they have to pass `--yes`. That's why the skill makes them ask you first, and why you should also [let your agent harness enforce it](#agent-safety).
 - **mdv only touches what it created:** it updates only the Notion pages and gists it made itself, recorded in `.notion.json` and `.share.json`.
 - **No silent overwrites:** it refuses to overwrite edits someone made in Notion.
@@ -34,13 +34,18 @@ mdv doctor
 
 That's it: install, set up, teach your agent, check. The sections below explain each step and the alternatives.
 
+> 💡 **Notion and GitHub are optional.** Viewing, finding, checking and writing docs work fully offline, with nothing else installed. `mdv init` asks for a Notion and a GitHub token only for publishing (`mdv notion`, `mdv share`). Press enter to skip both, and `mdv doctor` shows them as "not set up (optional)" rather than as errors.
+
 ## Requirements
 
 - **macOS or Linux** (Intel or ARM).
-- **`git`**: `mdv share` uses it to upload images, and `mdv notion diff` and updates use it to show diffs.
-- **To publish:** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration).
 
-Browsing docs needs only the binary. Building from source also needs Go 1.27+ and `make`.
+That's all you need to view, find, check and write docs. The rest is optional:
+
+- **`git`**: used by `mdv share` to upload images, to show diffs (`mdv notion diff`, `mdv skill diff`), by `mdv signals`, and by `mdv new` to fill in the repo and branch.
+- **To publish (optional):** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration). `gh` also lets `mdv signals` check PRs.
+
+Building from source also needs Go 1.27+ and `make`.
 
 ## Setup, step by step
 
@@ -317,6 +322,46 @@ mdv check --all                            # every doc with an agent index
   - **Warnings:** empty sections in a done doc, relative links, wording like "yesterday" or "as discussed", a summary that only repeats the title, and an in-progress doc not updated for 30 days.
 - `mdv notion push` and `mdv share` print a warning when a doc with an agent index has issues.
 
+### Building on earlier work: `mdv signals` and `mdv impact`
+
+A merged PR isn't proof that the work holds up: a bug can surface weeks later, after other work was built on top of it. mdv can't prevent the bug, but it makes those dependencies visible, so nothing is built on broken work without anyone noticing.
+
+The agent index gets five more fields:
+
+```yaml
+status: regressed          # in-progress | done | regressed | abandoned | superseded
+merged: 2026-11-23         # when the PR merged; signals are checked from here
+builds_on: [TAP-222]       # earlier work this relies on (tickets or doc paths)
+verification:              # how the work was checked
+  - Unit tests in packages/http; manually tested login in staging
+issues:                    # problems found later
+  - ticket: TAP-555
+    found: 2026-12-07
+    note: $fetch drops custom headers on retries
+    fixed_by: TAP-556      # once fixed
+```
+
+**Before building on earlier work,** the agent checks the doc and asks you to confirm it's still valid:
+
+```sh
+mdv signals TAP-222        # warning signs since the merge (read-only)
+```
+
+`mdv signals` reports:
+- **Git:** fix, revert, hotfix and regression commits on the doc's `paths`, read from your local clone in `~/dev/<repo>` (`MDV_REPOS_DIR` to change it).
+- **GitHub:** a reverted PR, if `gh` is available.
+- **Recorded:** open `issues`, and anything the doc builds on that has regressed.
+
+What it couldn't check (no `paths`, no local clone, no `gh`) is listed as **not checked**, never as clean. **Jira and Sentry** aren't checked by mdv. The skill has the agent check them with its connectors when it has them, and tell you plainly when it doesn't.
+
+**When something turns out broken,** the agent marks that doc `regressed` with the bug ticket (with your approval) and runs:
+
+```sh
+mdv impact TAP-222         # everything that builds on it, directly or indirectly (read-only)
+```
+
+Downstream docs don't need editing: `mdv find`, `mdv check` and the viewer flag every doc that builds on regressed work.
+
 ### Notion: `mdv notion`
 
 ```sh
@@ -412,7 +457,17 @@ mdv doctor
 ✓ notion   API token works (integration "mdv")
 ✓ git      found
 ✓ github   GITHUB_TOKEN works (your-login); it needs gist read/write access
+✓ skill    ~/.claude/skills/mdv-docs matches this mdv version
 ```
+
+Without Notion or GitHub, the same check reads:
+
+```
+· notion   not set up (optional, only for mdv notion)
+· github   not set up (optional, only for mdv share)
+```
+
+`·` lines are informational. `✗` means something is set up but broken, for example an invalid token or a CLI that isn't logged in.
 
 ## Configuration
 
@@ -513,8 +568,9 @@ go vet ./... && gofmt -l .
 | `internal/gitx/` | Running `git` and `gh`, diffs, git context for `mdv new` |
 | `internal/version/` | `mdv --version` |
 | `internal/render/` | Terminal rendering (Glamour) and Notion-flavored Markdown fallbacks for the viewer and gists |
-| `internal/search/` | `mdv find` |
-| `internal/check/` | `mdv check` |
+| `internal/search/` | `mdv find`; resolving tickets and doc paths, regression warnings |
+| `internal/safeguard/` | `mdv signals` and `mdv impact` |
+| `internal/check/` | `mdv check`, and the warnings `push` and `share` print |
 | `internal/notion/` | `mdv notion`: sync state, diffs, API or `ntn` backends, databases, image uploads, read-only `schema` and `info` |
 | `internal/share/` | `mdv share`: gists via GitHub API (token) or `gh` |
 | `internal/skill/`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |

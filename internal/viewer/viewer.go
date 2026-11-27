@@ -14,6 +14,7 @@ import (
 	"github.com/jakobluthman95/mdv/internal/docs"
 	"github.com/jakobluthman95/mdv/internal/notion"
 	"github.com/jakobluthman95/mdv/internal/render"
+	"github.com/jakobluthman95/mdv/internal/search"
 	"github.com/jakobluthman95/mdv/internal/term"
 )
 
@@ -54,15 +55,16 @@ type model struct {
 	style     string
 	singleton bool // opened with a path argument: no list to go back to
 
-	mode   mode
-	list   list.Model
-	vp     viewport.Model
-	file   string
-	raw    string
-	err    error
-	width  int
-	height int
-	ready  bool
+	mode     mode
+	list     list.Model
+	vp       viewport.Model
+	file     string
+	raw      string
+	warnings []string
+	err      error
+	width    int
+	height   int
+	ready    bool
 }
 
 func newModel(dir, file, style string) model {
@@ -82,7 +84,7 @@ func newModel(dir, file, style string) model {
 
 func (m model) Init() tea.Cmd {
 	if m.singleton {
-		return loadFile(m.file)
+		return loadFile(m.dir, m.file)
 	}
 	return scanDir(m.dir)
 }
@@ -92,6 +94,7 @@ func (m model) Init() tea.Cmd {
 type filesMsg []list.Item
 type fileMsg struct {
 	path, content string
+	warnings      []string
 	err           error
 }
 
@@ -120,10 +123,19 @@ func scanDir(dir string) tea.Cmd {
 	}
 }
 
-func loadFile(path string) tea.Cmd {
+func loadFile(dir, path string) tea.Cmd {
 	return func() tea.Msg {
 		b, err := os.ReadFile(path)
-		return fileMsg{path: path, content: string(b), err: err}
+		if err != nil {
+			return fileMsg{path: path, err: err}
+		}
+		var warnings []string
+		if meta, _, ok, ferr := docs.SplitFrontmatter(b); ok && ferr == nil && len(meta.BuildsOn) > 0 {
+			for _, u := range search.RegressedUpstream(search.LoadDocs(dir), search.Doc{AbsPath: path, Meta: meta}) {
+				warnings = append(warnings, u.Message)
+			}
+		}
+		return fileMsg{path: path, content: string(b), warnings: warnings}
 	}
 }
 
@@ -144,7 +156,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.list.SetItems(msg)
 
 	case fileMsg:
-		m.file, m.raw, m.err = msg.path, msg.content, msg.err
+		m.file, m.raw, m.warnings, m.err = msg.path, msg.content, msg.warnings, msg.err
 		m.render()
 		return m, nil
 
@@ -179,9 +191,9 @@ func (m model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !filtering && msg.String() == "enter" {
 			if it, ok := m.list.SelectedItem().(fileItem); ok {
 				m.mode = modeRead
-				m.file, m.raw, m.err = it.path, "", nil
+				m.file, m.raw, m.warnings, m.err = it.path, "", nil, nil
 				m.vp.SetContent("")
-				return m, loadFile(it.path)
+				return m, loadFile(m.dir, it.path)
 			}
 		}
 	}
@@ -209,7 +221,7 @@ func (m model) updateRead(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.vp.GotoBottom()
 			return m, nil
 		case "r":
-			return m, loadFile(m.file)
+			return m, loadFile(m.dir, m.file)
 		}
 	}
 
@@ -228,7 +240,7 @@ func (m *model) render() {
 		return
 	}
 	out := m.raw
-	if s, err := render.ForTerminal(m.raw, m.style, min(m.width-2, 120)); err == nil {
+	if s, err := render.ForTerminal(m.raw, m.style, min(m.width-2, 120), m.warnings...); err == nil {
 		out = s
 	}
 	offset := m.vp.YOffset

@@ -26,8 +26,56 @@ type Meta struct {
 	Caveats      []string `yaml:"caveats" json:"caveats,omitempty"`
 	Related      []string `yaml:"related" json:"related,omitempty"`
 	SupersededBy string   `yaml:"superseded_by" json:"supersededBy,omitempty"`
+	Merged       string   `yaml:"merged" json:"merged,omitempty"`
+	BuildsOn     []string `yaml:"builds_on" json:"buildsOn,omitempty"`
+	Verification []string `yaml:"verification" json:"verification,omitempty"`
+	Issues       []Issue  `yaml:"issues" json:"issues,omitempty"`
 	Created      string   `yaml:"created" json:"created,omitempty"`
 	Updated      string   `yaml:"updated" json:"updated,omitempty"`
+}
+
+type Issue struct {
+	Ticket  string `yaml:"ticket" json:"ticket,omitempty"`
+	Found   string `yaml:"found" json:"found,omitempty"`
+	Note    string `yaml:"note" json:"note,omitempty"`
+	FixedBy string `yaml:"fixed_by" json:"fixedBy,omitempty"`
+}
+
+func (m Meta) OpenIssues() []Issue {
+	var open []Issue
+	for _, i := range m.Issues {
+		if strings.TrimSpace(i.FixedBy) == "" {
+			open = append(open, i)
+		}
+	}
+	return open
+}
+
+func (m Meta) OpenIssueTickets() []string {
+	var tickets []string
+	for _, i := range m.OpenIssues() {
+		if i.Ticket != "" {
+			tickets = append(tickets, i.Ticket)
+		}
+	}
+	return tickets
+}
+
+// RegressionWarning describes a regressed status or open issues, or is empty.
+func (m Meta) RegressionWarning() string {
+	what := ""
+	switch {
+	case m.Status == "regressed":
+		what = "regressed"
+	case len(m.OpenIssues()) > 0:
+		what = "open issues"
+	default:
+		return ""
+	}
+	if tickets := m.OpenIssueTickets(); len(tickets) > 0 {
+		what += " (" + strings.Join(tickets, ", ") + ")"
+	}
+	return what
 }
 
 type PRRef string

@@ -118,7 +118,7 @@ func newDocContent(t docs.Type, ticket, repo, app, branch, title, today string) 
 	if branch != "" {
 		fmt.Fprintf(&b, "branch: %s\n", branch)
 	}
-	fmt.Fprintf(&b, "pr:\ncaveats: []\nrelated: []\ncreated: %s\nupdated: %s\n---\n", today, today)
+	fmt.Fprintf(&b, "pr:\ncaveats: []\nrelated: []\nbuilds_on: []\nmerged:\nverification: []\ncreated: %s\nupdated: %s\n---\n", today, today)
 	h1 := title
 	if ticket != "" {
 		h1 = ticket + ": " + title

@@ -55,3 +55,27 @@ func TestAgentIndexDoesNotAffectSyncHash(t *testing.T) {
 		t.Fatal("editing only the agent index must not change the sync hash")
 	}
 }
+
+func TestSafeguardFields(t *testing.T) {
+	in := "---\nticket: TAP-2\nrepo: web-monorepo\nstatus: regressed\nmerged: 2026-11-01\nbuilds_on: [TAP-1, web-monorepo/TAP-0-base.md]\nverification:\n  - Logged in and checked the header\nissues:\n  - ticket: TAP-555\n    found: 2026-11-20\n    note: Header dropped again\n  - ticket: TAP-556\n    found: 2026-11-21\n    fixed_by: TAP-557\n---\n# T\n"
+	meta, _, ok, err := SplitFrontmatter([]byte(in))
+	if !ok || err != nil {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if meta.Merged != "2026-11-01" || len(meta.BuildsOn) != 2 || meta.BuildsOn[1] != "web-monorepo/TAP-0-base.md" || len(meta.Verification) != 1 {
+		t.Fatalf("meta: %+v", meta)
+	}
+	if len(meta.Issues) != 2 || meta.Issues[0] != (Issue{Ticket: "TAP-555", Found: "2026-11-20", Note: "Header dropped again"}) || meta.Issues[1].FixedBy != "TAP-557" {
+		t.Fatalf("issues: %+v", meta.Issues)
+	}
+	if open := meta.OpenIssues(); len(open) != 1 || open[0].Ticket != "TAP-555" {
+		t.Fatalf("open issues: %+v", open)
+	}
+	if w := meta.RegressionWarning(); w != "regressed (TAP-555)" {
+		t.Fatalf("warning: %q", w)
+	}
+	meta.Status = "done"
+	if w := meta.RegressionWarning(); w != "open issues (TAP-555)" {
+		t.Fatalf("warning: %q", w)
+	}
+}

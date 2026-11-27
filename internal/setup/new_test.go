@@ -28,6 +28,9 @@ func TestNewDocMatchesTemplateAndFailsCheckUntilFilled(t *testing.T) {
 		if !ok || err != nil || meta.Type != dt.Name || meta.Status != "in-progress" || meta.Apps[0] != "web-app" || meta.Branch != "tap-9-x" {
 			t.Fatalf("%s: index %+v ok=%v err=%v", dt.Name, meta, ok, err)
 		}
+		if !strings.Contains(doc, "related: []\nbuilds_on: []\nmerged:\nverification: []\n") || meta.Merged != "" || len(meta.BuildsOn) != 0 {
+			t.Errorf("%s: safeguard fields missing or not empty:\n%s", dt.Name, doc)
+		}
 		if !strings.HasPrefix(string(body), "# "+dt.Emoji+" TAP-9: Thing\n") {
 			t.Errorf("%s: H1 %q", dt.Name, strings.SplitN(string(body), "\n", 2)[0])
 		}

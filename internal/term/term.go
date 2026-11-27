@@ -93,3 +93,12 @@ func PrintJSON(v any) error {
 	fmt.Println(string(b))
 	return nil
 }
+
+// Access is the state of an optional integration (Notion, GitHub).
+type Access int
+
+const (
+	NotSetUp Access = iota
+	AccessOK
+	AccessBroken
+)

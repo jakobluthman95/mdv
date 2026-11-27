@@ -45,3 +45,17 @@ func TestViewerShowsAgentIndexHeader(t *testing.T) {
 		t.Errorf("raw YAML shown, or header not above the doc:\n%s", plain)
 	}
 }
+
+func TestViewerShowsRegressions(t *testing.T) {
+	index := strings.Replace(sampleIndex, "status: done", "status: regressed\nissues:\n  - ticket: TAP-555\n    found: 2026-11-20\n    note: Header dropped", 1)
+	out, err := ForTerminal(index+"# Title\n", "dark", 80, "builds on TAP-0, which regressed (TAP-9)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(out, "")
+	for _, want := range []string{"⚠ regressed: TAP-555 Header dropped", "⚠ builds on TAP-0, which regressed (TAP-9)"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("missing %q in:\n%s", want, plain)
+		}
+	}
+}
