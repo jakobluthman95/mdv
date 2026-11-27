@@ -4,12 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/jakobluthman95/mdv/internal/check"
+	"github.com/jakobluthman95/mdv/internal/docs"
+	"github.com/jakobluthman95/mdv/internal/notion"
+	"github.com/jakobluthman95/mdv/internal/safeguard"
+	"github.com/jakobluthman95/mdv/internal/search"
+	"github.com/jakobluthman95/mdv/internal/setup"
+	"github.com/jakobluthman95/mdv/internal/share"
+	"github.com/jakobluthman95/mdv/internal/skill"
+	ver "github.com/jakobluthman95/mdv/internal/version"
+	"github.com/jakobluthman95/mdv/internal/viewer"
 )
+
+// version is set at build time by GoReleaser and make install
+// (-ldflags "-X main.version=..."). go install builds fall back to the module
+// version Go records in the binary.
+var version = ""
 
 const usage = `mdv — terminal Markdown viewer
 
@@ -17,6 +28,11 @@ Usage:
   mdv              browse .md files in the docs folder (%s)
   mdv <file.md>    open a single file (relative or absolute path, ~ supported)
   mdv --dir        print the docs folder path
+  mdv new ...      start a doc from a template (see mdv new --help)
+  mdv check ...    check docs against the agent-index and template rules
+  mdv find ...     find docs by agent index and text (see mdv find --help)
+  mdv signals ...  look for signs that a doc's work regressed (see mdv signals --help)
+  mdv impact ...   list the docs that build on a doc (see mdv impact --help)
   mdv notion ...   sync docs to Notion (API token or ntn CLI; see mdv notion --help)
   mdv share ...    share a doc by secret link (GitHub gist; see mdv share --help)
   mdv skill ...    print, diff or install the mdv-docs agent skill (see mdv skill --help)
@@ -42,44 +58,82 @@ Keys:
 `
 
 func main() {
-	if err := loadEnvFile(configEnvFile()); err != nil {
-		if envFileExplicit() {
+	ver.Set(version)
+	setup.SetWelcome(welcomeDoc)
+	setup.SetEnvTemplate(envTemplate)
+	skill.SetFS(skillFS)
+
+	if err := setup.LoadEnvFile(setup.ConfigEnvFile()); err != nil {
+		if setup.EnvFileExplicit() {
 			fail(fmt.Errorf("MDV_ENV_FILE: %w", err))
 		}
-		fail(fmt.Errorf("reading %s: %w", configEnvFile(), err))
+		fail(fmt.Errorf("reading %s: %w", setup.ConfigEnvFile(), err))
 	}
-	dir, err := docsDir()
+	dir, err := docs.Dir()
 	if err != nil {
 		fail(err)
 	}
 
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "notion" {
-		if err := runNotion(dir, args[1:]); err != nil {
+		if err := notion.Run(dir, args[1:]); err != nil {
 			fail(err)
 		}
 		return
 	}
 	if len(args) > 0 && args[0] == "init" {
-		if err := initCmd(args[1:]); err != nil {
+		if err := setup.Init(args[1:]); err != nil {
 			fail(err)
 		}
 		return
 	}
 	if len(args) > 0 && args[0] == "doctor" {
-		if err := doctorCmd(dir); err != nil {
+		if err := setup.Doctor(dir); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "new" {
+		if err := setup.New(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "check" {
+		if err := check.Run(dir, args[1:]); err != nil {
+			if errors.Is(err, check.ErrFailed) {
+				os.Exit(1)
+			}
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "find" {
+		if err := search.Run(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "signals" {
+		if err := safeguard.RunSignals(dir, args[1:]); err != nil {
+			fail(err)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "impact" {
+		if err := safeguard.RunImpact(dir, args[1:]); err != nil {
 			fail(err)
 		}
 		return
 	}
 	if len(args) > 0 && args[0] == "skill" {
-		if err := runSkill(args[1:]); err != nil {
+		if err := skill.Run(args[1:]); err != nil {
 			fail(err)
 		}
 		return
 	}
 	if len(args) > 0 && args[0] == "share" {
-		if err := runShare(dir, args[1:]); err != nil {
+		if err := share.Run(dir, args[1:]); err != nil {
 			fail(err)
 		}
 		return
@@ -98,72 +152,21 @@ func main() {
 			fmt.Println(dir)
 			return
 		case "-v", "--version", "version":
-			fmt.Println("mdv", mdvVersion())
+			fmt.Println("mdv", ver.Get())
 			return
 		}
-		if file, err = resolveFile(args[0]); err != nil {
+		if file, err = docs.ResolveFile(args[0]); err != nil {
 			fail(err)
 		}
 	}
 
-	if err := ensureDocsDir(dir); err != nil {
+	if err := setup.EnsureDocsDir(dir); err != nil {
 		fail(err)
 	}
 
-	style := "light"
-	if lipgloss.HasDarkBackground() {
-		style = "dark"
-	}
-
-	m := newModel(dir, file, style)
-	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
+	if err := viewer.Run(dir, file); err != nil {
 		fail(err)
 	}
-}
-
-func docsDir() (string, error) {
-	if d := os.Getenv("MDV_DIR"); d != "" {
-		return expandPath(d)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, "dev", "md"), nil
-}
-
-func expandPath(p string) (string, error) {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		p = filepath.Join(home, p[1:])
-	}
-	return filepath.Abs(p)
-}
-
-func resolveFile(arg string) (string, error) {
-	p, err := expandPath(arg)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(p)
-	if err != nil {
-		return "", fmt.Errorf("cannot open %s: %w", arg, err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%s is not a regular file", arg)
-	}
-	if !isMarkdown(p) {
-		return "", fmt.Errorf("%s is not a Markdown file (.md / .markdown)", arg)
-	}
-	return p, nil
-}
-
-func isMarkdown(p string) bool {
-	ext := strings.ToLower(filepath.Ext(p))
-	return ext == ".md" || ext == ".markdown"
 }
 
 func fail(err error) {

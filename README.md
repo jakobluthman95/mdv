@@ -11,10 +11,11 @@ mdv gives agents (and you) one place and one workflow for it:
 1. **Write:** the [mdv-docs skill](#ai-agents) tells the agent where docs go (one folder outside your repos, default `~/dev/md`, organised by repo) and how to format them so they publish cleanly.
 2. **Review:** `mdv` opens a terminal viewer over every doc, newest first, so you can read what the agent wrote without leaving the terminal.
 3. **Publish, with approval:** the agent can push a doc to Notion (`mdv notion`) or turn it into a secret link (`mdv share`). The skill makes it ask first and show you exactly what will change.
+4. **Find, before new work:** every new doc starts with a short [agent index](#agent-index-and-mdv-find) (ticket, repo, summary, caveats, PR…). Before starting a ticket, the agent runs `mdv find` to see what earlier docs already cover, so it doesn't rediscover the same code and pitfalls.
 
 The commands are built so an agent can use them safely:
 
-- **Read-only checks first:** `status`, `diff`, `schema`, `info` and `doctor` never write anything.
+- **Read-only checks first:** `status`, `diff`, `schema`, `info`, `find`, `check`, `signals`, `impact` and `doctor` never write anything.
 - **Approval for every write:** in a terminal, every write asks `[y/N]`. Agents have no terminal, so they have to pass `--yes`. That's why the skill makes them ask you first, and why you should also [let your agent harness enforce it](#agent-safety).
 - **mdv only touches what it created:** it updates only the Notion pages and gists it made itself, recorded in `.notion.json` and `.share.json`.
 - **No silent overwrites:** it refuses to overwrite edits someone made in Notion.
@@ -33,13 +34,18 @@ mdv doctor
 
 That's it: install, set up, teach your agent, check. The sections below explain each step and the alternatives.
 
+> 💡 **Notion and GitHub are optional.** Viewing, finding, checking and writing docs work fully offline, with nothing else installed. `mdv init` asks for a Notion and a GitHub token only for publishing (`mdv notion`, `mdv share`). Press enter to skip both, and `mdv doctor` shows them as "not set up (optional)" rather than as errors.
+
 ## Requirements
 
 - **macOS or Linux** (Intel or ARM).
-- **`git`**: `mdv share` uses it to upload images, and `mdv notion diff` and updates use it to show diffs.
-- **To publish:** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration).
 
-Browsing docs needs only the binary. Building from source also needs Go 1.27+ and `make`.
+That's all you need to view, find, check and write docs. The rest is optional:
+
+- **`git`**: used by `mdv share` to upload images, to show diffs (`mdv notion diff`, `mdv skill diff`), by `mdv signals`, and by `mdv new` to fill in the repo and branch.
+- **To publish (optional):** a Notion **integration token** *or* the `ntn` CLI for `mdv notion`, and a GitHub **token** *or* the `gh` CLI for `mdv share`. See [Configuration](#configuration). `gh` also lets `mdv signals` check PRs.
+
+Building from source also needs Go 1.27+ and `make`.
 
 ## Setup, step by step
 
@@ -119,7 +125,8 @@ Your settings in `~/.config/mdv/.env` and your docs are never touched by an upda
 
 The skill is what turns mdv from a viewer into an agent workflow. [`skills/mdv-docs/SKILL.md`](skills/mdv-docs/SKILL.md) tells the agent:
 
-- where docs go and how to name them;
+- to search earlier docs with `mdv find` before starting work on a ticket or change;
+- where docs go and how to name them, and to start every new doc with an agent index;
 - the Notion-ready Markdown format (H1 title, GFM plus optional Notion tags, images next to the doc);
 - how to push to Notion and share by link, using the read-only commands first;
 - to **always ask before any write**, stating exactly what will happen.
@@ -243,6 +250,118 @@ mdv --help           # all commands and keys
 | `esc`, `backspace` | back to the list |
 | `q`, `ctrl+c` | quit |
 
+A doc's [agent index](#agent-index-and-mdv-find) is shown as a compact header above it. The file list shows its ticket and status.
+
+### Agent index and `mdv find`
+
+Every new doc starts with an **agent index**: YAML frontmatter that tells an agent what the doc is about without reading all of it. The skill makes agents write one, and keep it current.
+
+```yaml
+---
+ticket: TAP-4968
+repo: web-monorepo
+apps: [web-app]
+type: investigation        # investigation | plan | summary | how-to | reference | bug
+status: done               # in-progress | done | abandoned | superseded
+summary: >
+  web-app can drop Axios for Nuxt $fetch; api-sdk already uses HttpAdapter.
+keywords: [axios, fetch, ofetch, http]
+paths: [packages/http, packages/api-sdk]
+pr: 1787
+caveats:
+  - Interceptors move to ofetch hooks
+related: [TAP-4398]
+updated: 2026-11-16
+---
+# 🔍 TAP-4968: Migrating web-app off Axios
+```
+
+Required: `repo`, `type`, `status`, `summary`, `keywords`, `updated`. The rest are optional. The full field list and rules are in the [skill](skills/mdv-docs/SKILL.md).
+
+- **It stays local.** mdv strips it before Notion and gists.
+- **Editing only the index doesn't count as a content change,** so updating status or the PR doesn't mark a published doc as needing a re-push.
+- **In the viewer,** it shows as a header box.
+
+`mdv find` searches the docs folder, best match first. It's read-only and builds its index on the fly; there's no index file to keep in sync.
+
+```sh
+mdv find axios fetch                       # words: ticket, keywords, paths, title, summary, caveats, text
+mdv find --ticket TAP-4968                 # a ticket, and docs that list it under related
+mdv find --repo web-monorepo --app web-app --status in-progress
+mdv find --path packages/http              # docs whose paths overlap a folder or file
+mdv find fetch --json                      # for agents: full index, score, and why it matched
+mdv find --unindexed                       # docs without an agent index
+```
+
+Docs without an agent index still match: their repo and app come from the folder (`{repo}/{app}/…`), and the ticket from the file name (`TAP-1234-…`).
+
+### Templates: `mdv new` and `mdv check`
+
+Each doc type has a fixed set of sections, so a later reader (often an agent) can jump straight to what they need. The full guide, including how to write for the next agent, is [`templates.md`](skills/mdv-docs/templates.md).
+
+| Type | Sections |
+|---|---|
+| `investigation` | Question · Findings · Options considered · Recommendation · Open questions · For future work |
+| `plan` | Goal · Approach · Steps · Risks · Out of scope · For future work |
+| `summary` | What changed · Why · How to verify · Caveats · Follow-ups · For future work |
+| `bug` | Symptom · Root cause · Fix · How to verify · Related areas at risk · For future work |
+| `how-to` | When to use · Steps · Troubleshooting |
+| `reference` | Overview · Details · Gotchas |
+
+```sh
+mdv new summary TAP-333 fetch-header-bug   # skeleton with the agent index filled in
+mdv check web-monorepo/web-app/TAP-333-fetch-header-bug.md
+mdv check --all                            # every doc with an agent index
+```
+
+- **`mdv new`**
+  - Run it inside the repo the work is about. It takes repo and app from the folder you're in (`apps/<app>` or `packages/<app>`), the branch from git, and the ticket and dates from the arguments.
+  - `--repo`/`--app` override them, `--print` prints instead of writing, and it never overwrites an existing doc.
+- **`mdv check`** is read-only and exits with 1 on errors.
+  - **Errors:** a missing or invalid agent index, missing required fields, an unknown type or status, missing sections.
+  - **Warnings:** empty sections in a done doc, relative links, wording like "yesterday" or "as discussed", a summary that only repeats the title, and an in-progress doc not updated for 30 days.
+- `mdv notion push` and `mdv share` print a warning when a doc with an agent index has issues.
+
+### Building on earlier work: `mdv signals` and `mdv impact`
+
+A merged PR isn't proof that the work holds up: a bug can surface weeks later, after other work was built on top of it. mdv can't prevent the bug, but it makes those dependencies visible, so nothing is built on broken work without anyone noticing.
+
+The agent index gets five more fields:
+
+```yaml
+status: regressed          # in-progress | done | regressed | abandoned | superseded
+merged: 2026-11-23         # when the PR merged; signals are checked from here
+builds_on: [TAP-222]       # earlier work this relies on (tickets or doc paths)
+verification:              # how the work was checked
+  - Unit tests in packages/http; manually tested login in staging
+issues:                    # problems found later
+  - ticket: TAP-555
+    found: 2026-12-07
+    note: $fetch drops custom headers on retries
+    fixed_by: TAP-556      # once fixed
+```
+
+**Before building on earlier work,** the agent checks the doc and asks you to confirm it's still valid:
+
+```sh
+mdv signals TAP-222        # warning signs since the merge (read-only)
+```
+
+`mdv signals` reports:
+- **Git:** fix, revert, hotfix and regression commits on the doc's `paths`, read from your local clone in `~/dev/<repo>` (`MDV_REPOS_DIR` to change it).
+- **GitHub:** a reverted PR, if `gh` is available.
+- **Recorded:** open `issues`, and anything the doc builds on that has regressed.
+
+What it couldn't check (no `paths`, no local clone, no `gh`) is listed as **not checked**, never as clean. **Jira and Sentry** aren't checked by mdv. The skill has the agent check them with its connectors when it has them, and tell you plainly when it doesn't.
+
+**When something turns out broken,** the agent marks that doc `regressed` with the bug ticket (with your approval) and runs:
+
+```sh
+mdv impact TAP-222         # everything that builds on it, directly or indirectly (read-only)
+```
+
+Downstream docs don't need editing: `mdv find`, `mdv check` and the viewer flag every doc that builds on regressed work.
+
 ### Notion: `mdv notion`
 
 ```sh
@@ -338,7 +457,17 @@ mdv doctor
 ✓ notion   API token works (integration "mdv")
 ✓ git      found
 ✓ github   GITHUB_TOKEN works (your-login); it needs gist read/write access
+✓ skill    ~/.claude/skills/mdv-docs matches this mdv version
 ```
+
+Without Notion or GitHub, the same check reads:
+
+```
+· notion   not set up (optional, only for mdv notion)
+· github   not set up (optional, only for mdv share)
+```
+
+`·` lines are informational. `✗` means something is set up but broken, for example an invalid token or a CLI that isn't logged in.
 
 ## Configuration
 
@@ -431,21 +560,22 @@ make build            # ./mdv
 go vet ./... && gofmt -l .
 ```
 
-| File | Contents |
+| Folder | Contents |
 |---|---|
-| `main.go` | CLI entry, docs folder, argument handling |
-| `ui.go`, `style.go` | Terminal UI (Bubble Tea + Glamour) |
-| `env.go` | `~/.config/mdv/.env` loading |
-| `notion.go` | `mdv notion` commands, sync state, diffs |
-| `notionapi.go` | Notion backends: direct API (token) or `ntn` |
-| `images.go` | Local image detection, Notion uploads, link rewriting |
-| `share.go` | `mdv share`: gists via GitHub API (token) or `gh` |
-| `notionread.go` | `mdv notion schema` and `mdv notion info` (read-only) |
-| `nfm.go` | Notion-flavored Markdown fallbacks for the viewer and gists |
-| `skill.go`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
-| `doctor.go` | `mdv doctor` |
-| `init.go` | `mdv init` |
-| `version.go` | `mdv --version`, docs folder + welcome doc on first run |
+| `main.go`, `embed.go` | CLI entry and argument handling; embeds `welcome.md`, `.env.example` and `skills/mdv-docs/` |
+| `internal/docs/` | Doc files: paths, agent index (YAML frontmatter), doc types, titles, local images, hashes |
+| `internal/term/` | Terminal helpers: prompts, links, shared styles, JSON output |
+| `internal/gitx/` | Running `git` and `gh`, diffs, git context for `mdv new` |
+| `internal/version/` | `mdv --version` |
+| `internal/render/` | Terminal rendering (Glamour) and Notion-flavored Markdown fallbacks for the viewer and gists |
+| `internal/search/` | `mdv find`; resolving tickets and doc paths, regression warnings |
+| `internal/safeguard/` | `mdv signals` and `mdv impact` |
+| `internal/check/` | `mdv check`, and the warnings `push` and `share` print |
+| `internal/notion/` | `mdv notion`: sync state, diffs, API or `ntn` backends, databases, image uploads, read-only `schema` and `info` |
+| `internal/share/` | `mdv share`: gists via GitHub API (token) or `gh` |
+| `internal/skill/`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
+| `internal/viewer/` | Terminal UI (Bubble Tea) |
+| `internal/setup/` | `mdv init`, `mdv doctor`, `mdv new`, `~/.config/mdv/.env` loading, docs folder + welcome doc on first run |
 | `contrib/claude-code/mdv-guard.sh` | Optional Claude Code hook that forces approval for agent writes |
 | `install.sh` | The install script |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | Release pipeline |

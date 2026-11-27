@@ -4,6 +4,7 @@ mdv sends docs to Notion as **Notion-flavored Markdown** (NFM, `markdown_version
 
 - **Plain GFM is the default and always works.** Every existing doc is valid NFM.
 - **Notion tags are optional.** Use them when a doc really benefits from them, for example a toggle that hides a long log. They look native in Notion. The mdv viewer renders their structure and colors: content of toggles, tabs and columns is indented on a `┊` rail. `mdv share` turns them into GitHub-friendly Markdown. Each element's rendering is listed below.
+- **The agent index** (YAML frontmatter at the top of a doc) is never sent: mdv strips it before Notion and gists.
 - **No other raw HTML.** Tags that aren't listed here (`<div>`, `<sup>`, `<small>`…) end up as literal text in Notion.
 
 Sources:
