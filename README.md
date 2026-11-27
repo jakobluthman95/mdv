@@ -505,25 +505,21 @@ make build            # ./mdv
 go vet ./... && gofmt -l .
 ```
 
-| File | Contents |
+| Folder | Contents |
 |---|---|
-| `main.go` | CLI entry, docs folder, argument handling |
-| `ui.go`, `style.go` | Terminal UI (Bubble Tea + Glamour) |
-| `env.go` | `~/.config/mdv/.env` loading |
-| `notion.go` | `mdv notion` commands, sync state, diffs |
-| `notionapi.go` | Notion backends: direct API (token) or `ntn` |
-| `images.go` | Local image detection, Notion uploads, link rewriting |
-| `share.go` | `mdv share`: gists via GitHub API (token) or `gh` |
-| `notionread.go` | `mdv notion schema` and `mdv notion info` (read-only) |
-| `frontmatter.go` | Agent index (YAML frontmatter) parsing and stripping |
-| `find.go` | `mdv find` |
-| `doctypes.go` | Doc types, their sections, and `mdv new` |
-| `check.go` | `mdv check` |
-| `nfm.go` | Notion-flavored Markdown fallbacks for the viewer and gists |
-| `skill.go`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
-| `doctor.go` | `mdv doctor` |
-| `init.go` | `mdv init` |
-| `version.go` | `mdv --version`, docs folder + welcome doc on first run |
+| `main.go`, `embed.go` | CLI entry and argument handling; embeds `welcome.md`, `.env.example` and `skills/mdv-docs/` |
+| `internal/docs/` | Doc files: paths, agent index (YAML frontmatter), doc types, titles, local images, hashes |
+| `internal/term/` | Terminal helpers: prompts, links, shared styles, JSON output |
+| `internal/gitx/` | Running `git` and `gh`, diffs, git context for `mdv new` |
+| `internal/version/` | `mdv --version` |
+| `internal/render/` | Terminal rendering (Glamour) and Notion-flavored Markdown fallbacks for the viewer and gists |
+| `internal/search/` | `mdv find` |
+| `internal/check/` | `mdv check` |
+| `internal/notion/` | `mdv notion`: sync state, diffs, API or `ntn` backends, databases, image uploads, read-only `schema` and `info` |
+| `internal/share/` | `mdv share`: gists via GitHub API (token) or `gh` |
+| `internal/skill/`, `skills/mdv-docs/` | The bundled agent skill and `mdv skill` |
+| `internal/viewer/` | Terminal UI (Bubble Tea) |
+| `internal/setup/` | `mdv init`, `mdv doctor`, `mdv new`, `~/.config/mdv/.env` loading, docs folder + welcome doc on first run |
 | `contrib/claude-code/mdv-guard.sh` | Optional Claude Code hook that forces approval for agent writes |
 | `install.sh` | The install script |
 | `.goreleaser.yaml`, `.github/workflows/release.yml` | Release pipeline |
